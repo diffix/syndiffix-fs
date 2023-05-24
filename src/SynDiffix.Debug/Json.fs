@@ -26,14 +26,16 @@ let private encodeRange (range: Range) =
 let private encodeRanges (ranges: Ranges) =
   ranges |> Array.map encodeRange |> Encode.array
 
-let private generateDecoder<'T> = Decode.Auto.generateDecoder<'T> CamelCase
-
-let private extraRowsCoders =
-  Extra.empty
-  |> Extra.withUInt64
-  |> Extra.withCustom encodeValue generateDecoder<Value>
-
-let private rowsEncoder = Encode.Auto.generateEncoder<Tree.Row seq> (CamelCase, extraRowsCoders)
+let private rowEncoder combination (row: Tree.Row) =
+  Encode.object
+    [
+      "values",
+      row.Values
+      |> getItemsCombination combination
+      |> Seq.map Encode.float
+      |> Encode.seq
+      "aids", row.Aids |> Seq.map Encode.uint64 |> Encode.seq
+    ]
 
 let private encodeNodeData (data: Tree.NodeData) =
   [
@@ -46,8 +48,10 @@ let rec private encodeNode =
   function
   | Tree.Leaf leaf ->
     [
-      "rows", rowsEncoder leaf.Rows
-    //"subnodes", leaf.Data.Subnodes |> Array.map (Encode.option encodeNode) |> Encode.array
+      "rows",
+      leaf.Rows.ToArray()
+      |> Seq.map (rowEncoder leaf.Data.Context.Combination)
+      |> Encode.seq
     ]
     |> List.append (encodeNodeData leaf.Data)
     |> Encode.object
