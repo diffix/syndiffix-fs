@@ -9,38 +9,53 @@ dotnet run file.csv --columns c0:r c1:i c2:b --aidcolumns aid --verbose
 ```
 
 `<file.csv>` - Specifies the input CSV file.
+
 `--columns [<string>...]` - List of columns and their types in format `colName:t`, where `t` is the column type
+
 (`b`-boolean, `i`-integer, `r`-real, `t`-timestamp, `s`-string).
+
 `--aidcolumns [<string>...]` - Optional - List of AID columns. Uses row number if not specified.
+
 `--verbose` - Optional - Display extra output for debugging purposes.
 
 To change the anonymization parameters, the following optional arguments are available:
 
 `--lcf-low-threshold, -lcf <int>` - Low threshold for the low-count filter.
+
 `--range-low-threshold, -range <int>` - Low threshold for a range bucket.
+
 `--singularity-low-threshold, -sing <int>` - Low threshold for a singularity bucket.
+
 `--threshold-sd, -thresh_sd <double>` - Threshold SD for LCF/range/singularity decisions.
+
 `--outlier-count <int> <int>` - Outlier count interval.
+
 `--top-count <int> <int>` - Top values count interval.
+
 `--layer-noise-sd, -noise_sd <double>` - Count SD for each noise layer.
 
 To change clustering parameters, the following optional arguments are available:
 
 `--no-clustering` - Disables column clustering.
+
 `--clustering-samplesize <int>` - Table sample size when measuring dependence.
+
 `--clustering-maxsize <int>` - Maximum cluster size.
+
 `--clustering-thresh-merge <double>` - Dependence threshold for combining columns in a cluster.
+
 `--clustering-thresh-patch <double>` - Dependence threshold for making a patch.
 
 To trade precision for performance, the following optional arguments are available:
 
 `--precision-limit-row-fraction <int>` - Tree nodes are allowed to split if `node_num_rows >= table_num_rows/row_fraction`.
+
 `--precision-limit-depth-threshold <int>` - Tree depth threshold below which the `row-fraction` check is not applied.
 
 ## Goals
 
 This is the reference implementation of SynDiffix that should serve as a guide for a fully-featured
-integration of the method into other projects.
+integration of the mechanism into other projects.
 
 ## Step-by-step description of the algorithm
 
