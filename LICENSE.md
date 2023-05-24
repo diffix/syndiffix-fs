@@ -1,6 +1,10 @@
-MIT License
+# License
 
-Copyright (c) 2023 Diffix
+## The MIT License
+
+Copyright (c) **2023, Max Planck Gesellschaft (MPG)**
+
+### Terms
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

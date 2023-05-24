@@ -1,0 +1,2 @@
+int:i,real:r,bool:b,string:s,time:t
+1,2.5,true,a,2023-01-25 12:27:30

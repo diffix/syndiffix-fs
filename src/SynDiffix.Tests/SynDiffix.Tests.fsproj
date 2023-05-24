@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="TestHelpers.fs" />
+    <Compile Include="Common.Tests.fs" />
+    <Compile Include="Range.Tests.fs" />
+    <Compile Include="Forest.Tests.fs" />
+    <Compile Include="Clustering.Tests.fs" />
+    <Compile Include="Microdata.Tests.fs" />
+    <Compile Include="Csv.Tests.fs" />
+    <Compile Include="Anonymization.Tests.fs" />
+    <Compile Include="Anonymizer.Tests.fs" />
+    <Compile Include="Program.Tests.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="FsUnit.xUnit" Version="4.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="16.9.4" />
+    <PackageReference Include="xunit" Version="2.4.1" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\SynDiffix\SynDiffix.fsproj" />
+  </ItemGroup>
+</Project>
