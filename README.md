@@ -1,5 +1,10 @@
 # Reference implementation of SynDiffix
 
+## Goals
+
+This is the reference implementation of SynDiffix that should serve as a guide for a fully-featured
+integration of the mechanism into other projects.
+
 ## Usage
 
 From inside the `src\SynDiffix` folder execute:
@@ -51,11 +56,6 @@ To trade precision for performance, the following optional arguments are availab
 `--precision-limit-row-fraction <int>` - Tree nodes are allowed to split if `node_num_rows >= table_num_rows/row_fraction`.
 
 `--precision-limit-depth-threshold <int>` - Tree depth threshold below which the `row-fraction` check is not applied.
-
-## Goals
-
-This is the reference implementation of SynDiffix that should serve as a guide for a fully-featured
-integration of the mechanism into other projects.
 
 ## Step-by-step description of the algorithm
 
