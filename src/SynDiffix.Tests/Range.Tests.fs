@@ -17,7 +17,7 @@ let valueToFloat value =
   | Integer _ -> integerConvertor.ToFloat(value)
   | Real _ -> realConvertor.ToFloat(value)
   | Timestamp _ -> timestampConvertor.ToFloat(value)
-  | _ -> failwith "Invalid value!"
+  | _ -> failwith "Unsupported conversion of a value to float!"
 
 let createSnappedRange min max =
   (valueToFloat min, valueToFloat max) ||> createRange |> snapRange

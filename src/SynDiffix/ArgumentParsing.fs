@@ -65,7 +65,7 @@ type ParsedArguments =
 let private parseColumnReference (str: string) =
   let columnType =
     Csv.columnTypeFromName str
-    |> Option.defaultWith (fun _ -> failwith $"Cannot determine type for column {str}")
+    |> Option.defaultWith (fun _ -> failwith $"Cannot determine type for column `{str}`.")
 
   let name = str.Substring(0, str.LastIndexOf(":")) // Discards type annotation when it is provided from CLI.
   { Name = name; Type = columnType }
