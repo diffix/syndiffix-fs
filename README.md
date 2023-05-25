@@ -15,11 +15,11 @@ dotnet run file.csv --columns c0:r c1:i c2:b --aidcolumns aid --verbose
 
 `<file.csv>` - Specifies the input CSV file.
 
-`--columns [<string>...]` - List of columns and their types in format `colName:t`, where `t` is the column type
+`--columns [<string>...]` - List of columns and their types in the format `column:t`, where `t` is one of the following:
+`b`-boolean, `i`-integer, `r`-real, `t`-timestamp, `s`-string.
 
-(`b`-boolean, `i`-integer, `r`-real, `t`-timestamp, `s`-string).
-
-`--aidcolumns [<string>...]` - Optional - List of AID columns. Uses row number if not specified.
+`--aidcolumns [<string>...]` - Optional - List of entity ID columns used for anonymization. If not specified,
+assumes each row represents a different entity.
 
 `--verbose` - Optional - Display extra output for debugging purposes.
 

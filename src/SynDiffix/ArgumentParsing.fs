@@ -28,9 +28,11 @@ type private Arguments =
       match this with
       | CsvPath _ -> "Path to the CSV file."
       | Columns _ ->
-        "List of columns and their types in format colName:t, where `t` is the column type\n"
-        + "(`b`-boolean, `i`-integer, `r`-real, `t`-timestamp, `s`-string)."
-      | AidColumns _ -> "List of AID columns. Uses row number if not specified."
+        "List of columns and their types in the format `column:t`, where `t` is one of the following: "
+        + "`b`-boolean, `i`-integer, `r`-real, `t`-timestamp, `s`-string."
+      | AidColumns _ ->
+        "List of entity ID columns used for anonymization. If not specified, "
+        + "assumes each row represents a different entity."
       | Lcf_Low_Threshold _ -> "Low threshold for the low-count filter."
       | Range_Low_Threshold _ -> "Low threshold for a range bucket."
       | Singularity_Low_Threshold _ -> "Low threshold for a singularity bucket."
