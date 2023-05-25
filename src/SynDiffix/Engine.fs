@@ -68,7 +68,7 @@ let private printScores (scores: float[,]) =
 
   eprintfn ""
 
-let transform (arguments: ParsedArguments) =
+let transform treeCacheLevel (arguments: ParsedArguments) =
   let countStrategy =
     createCountStrategy arguments.AidColumns arguments.BucketizationParams.RangeLowThreshold
 
@@ -102,6 +102,8 @@ let transform (arguments: ParsedArguments) =
 
   let forest =
     Forest(rows, dataConvertors, anonContext, arguments.BucketizationParams, columnNames, countStrategy)
+
+  forest.SetCacheLevel treeCacheLevel
 
   let allColumns = [ 0 .. forest.Dimensions - 1 ]
 

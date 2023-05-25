@@ -415,6 +415,7 @@ type Forest
 
   let mappedRows = rows |> Array.map (Tree.mapRow dataConvertors nullMappings)
 
+  let mutable cacheLevel = 1
   let treeCache = Dictionary<Combination, Tree>(LanguagePrimitives.FastGenericEqualityComparer)
 
   let rec getTree (combination: Combination) =
@@ -493,12 +494,14 @@ type Forest
   member this.GetTree(combination: Combination) =
     let tree = getTree combination
 
-    // To reduce memory usage, drop multi-dimensional trees from the cache between invocations.
+    // To reduce memory usage, drop trees larger than `cacheLevel` from the cache between invocations.
     treeCache.Keys
-    |> Seq.filter (Array.length >> ((<>) 1))
+    |> Seq.filter (Array.length >> ((<) cacheLevel))
     |> Seq.iter (treeCache.Remove >> ignore)
 
     tree
 
   member this.GetAvailableTrees() =
     treeCache |> Seq.map (fun pair -> pair.Value) |> Seq.toList
+
+  member this.SetCacheLevel level = cacheLevel <- level

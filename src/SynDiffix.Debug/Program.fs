@@ -23,7 +23,8 @@ let rec private collectRoots (root: Tree) =
 [<EntryPoint>]
 let main argv =
   let arguments = parseArguments argv
-  let result = transform arguments
+  let treeCacheLevel = if arguments.Verbose then arguments.CsvColumns.Length else 1
+  let result = transform treeCacheLevel arguments
 
   let debugTrees =
     if arguments.Verbose then
