@@ -105,7 +105,7 @@ let private compactFlatteningIntervals outlierCount topCount totalCount =
         | false, false ->
           // Not possible. Otherwise `outlierRange + topRange < outlierAdjustment + topAdjustment = totalAdjustment` but we
           // knew the opposite was true in (*) above
-          failwith "Internal error - impossible interval compacting"
+          failwith "Impossible interval compacting."
 
     Some compactIntervals
 

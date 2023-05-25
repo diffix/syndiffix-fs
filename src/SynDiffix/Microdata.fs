@@ -133,7 +133,7 @@ let createDataConvertors (columnTypes: ExpressionType seq) (rows: Row seq) =
     | RealType -> RealConvertor() :> IDataConvertor
     | TimestampType -> TimestampConvertor() :> IDataConvertor
     | StringType -> rows |> Seq.map (Array.item fieldIndex) |> StringConvertor :> IDataConvertor
-    | _ -> failwith "Invalid column type!"
+    | _ -> failwith $"Invalid column type: `{columnType}`!"
   )
   |> Seq.toArray
 

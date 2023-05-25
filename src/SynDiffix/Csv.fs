@@ -50,7 +50,7 @@ let read (filePath: string) (columns: Columns) (aidColumns: string list) : CsvRe
         |> List.map (fun aidColumn ->
           headerColumns
           |> Array.tryFindIndex ((=) aidColumn)
-          |> Option.defaultWith (fun () -> failwith $"AID Column '{aidColumn}' not found.")
+          |> Option.defaultWith (fun () -> failwith $"AID Column '{aidColumn}' was not found.")
         )
 
       fun () -> aidColumnIndexes |> List.map (csv.GetField >> parseField StringType) |> List
@@ -61,7 +61,7 @@ let read (filePath: string) (columns: Columns) (aidColumns: string list) : CsvRe
       let index = Array.IndexOf(headerColumns, column.Name)
 
       if index < 0 then
-        failwith $"Could not resolve column '{column.Name}'"
+        failwith $"Column '{column.Name}' was not found."
 
       index, column.Type
     )
