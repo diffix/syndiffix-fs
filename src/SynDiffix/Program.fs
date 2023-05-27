@@ -6,7 +6,7 @@ open SynDiffix.Engine
 [<EntryPoint>]
 let main argv =
   try
-    let result = argv |> parseArguments |> transform
+    let result = argv |> parseArguments |> transform 1
     Csv.toString result.Columns result.SynRows |> printfn "%s"
     0
   with ex ->
