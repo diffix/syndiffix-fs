@@ -1,0 +1,41 @@
+name: release
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+          - os: windows-latest
+            target: win
+          - os: macos-latest
+            target: osx
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: 6.0.x
+      - name: Build
+        run: dotnet publish -o ./bin/ -c Release ./src/SynDiffix/ -r ${{ matrix.target }}-x64 --self-contained true -p:PublishReadyToRun=true -p:PublishTrimmed=true -p:PublishSingleFile=true
+      - name: Pack
+        shell: bash
+        run: |
+          mkdir release
+          if [ "${{ matrix.target }}" == "win" ]; then
+            7z a -tzip release/syndiffix_win_${{ github.ref_name }}.zip bin/*
+          else
+            tar czvf release/syndiffix_${{ matrix.target }}_${{ github.ref_name }}.tar.gz -C bin .
+          fi
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          draft: true
+          files: "release/*"
