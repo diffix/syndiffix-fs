@@ -22,6 +22,7 @@ type private Arguments =
   | [<Unique>] Precision_Limit_Row_Fraction of int
   | [<Unique>] Precision_Limit_Depth_Threshold of int
   | Verbose
+  | Debug
 
   interface IArgParserTemplate with
     member this.Usage =
@@ -49,17 +50,19 @@ type private Arguments =
       | Precision_Limit_Row_Fraction _ ->
         "Tree nodes are allowed to split if `node_num_rows >= table_num_rows/row_fraction`."
       | Precision_Limit_Depth_Threshold _ -> "Tree depth threshold below which the `row-fraction` check is not applied."
-      | Verbose -> "Display extra output for debugging purposes."
+      | Verbose -> "Log extra information to stderr."
+      | Debug -> "Display extra output for debugging purposes."
 
 type ParsedArguments =
   {
     CsvPath: string
-    Verbose: bool
     CsvColumns: Column list
     AidColumns: string list
     AnonymizationParams: AnonymizationParams
     BucketizationParams: BucketizationParams
     MainColumn: int option
+    Verbose: bool
+    Debug: bool
   }
 
 let private parseColumnReference (str: string) =
@@ -164,6 +167,7 @@ let parseArguments argv =
   let csvPath = parsedArguments.GetResult CsvPath
 
   let verbose = (parsedArguments.TryGetResult Verbose).IsSome
+  let debug = (parsedArguments.TryGetResult Debug).IsSome
 
   let columns = parsedArguments.TryGetResult Columns
   let csvColumns = columns.Value |> List.map parseColumnReference
@@ -191,10 +195,11 @@ let parseArguments argv =
 
   {
     CsvPath = csvPath
-    Verbose = verbose
     CsvColumns = csvColumns
     AidColumns = aidColumns
     AnonymizationParams = anonParams
     BucketizationParams = bucketizationParams
     MainColumn = mainColumn
+    Verbose = verbose
+    Debug = debug
   }

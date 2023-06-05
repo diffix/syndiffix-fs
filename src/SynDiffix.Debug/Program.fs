@@ -23,11 +23,11 @@ let rec private collectRoots (root: Tree) =
 [<EntryPoint>]
 let main argv =
   let arguments = parseArguments argv
-  let treeCacheLevel = if arguments.Verbose then arguments.CsvColumns.Length else 1
+  let treeCacheLevel = if arguments.Debug then arguments.CsvColumns.Length else 1
   let result = transform treeCacheLevel arguments
 
   let debugTrees =
-    if arguments.Verbose then
+    if arguments.Debug then
       // Gets all built trees, including lower dimensions.
       result.Forest.GetAvailableTrees()
       |> List.collect collectRoots
