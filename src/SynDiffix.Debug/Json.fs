@@ -114,7 +114,7 @@ let toString
     "colNames", columns |> List.map (fun column -> Encode.string column.Name) |> Encode.list
     "nullMappings", nullMappings |> Array.map Encode.float |> Encode.array
     "anonParams", encodeAnonParams anonParams
-    "bucketizationParans", encodeBucketizationParams bucketizationParams
+    "bucketizationParams", encodeBucketizationParams bucketizationParams
     "trees", forests |> encodeCombinations encodeNode
     "buckets", buckets |> encodeCombinations (Seq.map encodeBucket >> Encode.seq)
     "synRows", synRows |> Seq.map encodeValues |> Encode.seq
