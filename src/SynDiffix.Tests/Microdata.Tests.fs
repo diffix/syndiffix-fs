@@ -35,3 +35,21 @@ let ``String mapping`` () =
   |> convertor.FromRange
   |> unwrapString
   |> should startWith "a*"
+
+[<Fact>]
+let ``Boolean mapping`` () =
+  let convertor =
+    [ true; false ]
+    |> List.map (fun b -> [| List [ Null ]; Boolean b |])
+    |> createDataConvertors [ BooleanType ]
+    |> Array.head
+
+  Boolean true |> convertor.ToFloat |> should equal 1.0
+  Boolean false |> convertor.ToFloat |> should equal 0.0
+
+  (0.0, 0.5)
+  ||> createRange
+  |> convertor.FromRange
+  |> should equal (Boolean false)
+
+  (0.5, 1.0) ||> createRange |> convertor.FromRange |> should equal (Boolean true)

@@ -22,8 +22,7 @@ type BooleanConvertor() =
       | Boolean false -> 0.0
       | _ -> failwith "Unexpected value type!"
 
-    member this.FromRange(range) =
-      range |> generateFloat |> (>=) 0.5 |> Boolean
+    member this.FromRange(range) = (generateFloat range) >= 0.5 |> Boolean
 
 type RealConvertor() =
   interface IDataConvertor with
