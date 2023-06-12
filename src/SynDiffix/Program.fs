@@ -7,7 +7,7 @@ open SynDiffix.Engine
 let main argv =
   try
     let result = argv |> parseArguments |> transform 1
-    Csv.toString result.Columns result.SynRows |> printfn "%s"
+    Csv.toString result.Columns result.SynRows |> printf "%s"
     0
   with ex ->
     eprintfn "ERROR: %s" ex.Message
