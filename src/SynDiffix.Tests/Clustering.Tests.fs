@@ -58,7 +58,7 @@ module DependenceTests =
         uniqueAidCountStrategy
       )
 
-    let result = forest |> Dependence.measure 0 1
+    let result = forest |> Dependence.measureDependence 0 1
     result.Columns |> should equal (0, 1)
     verifyNodePairs result.Scores
     verifyRanges result.Scores
@@ -84,118 +84,4 @@ module DependenceTests =
     |> should equal 5
 
     // Data fills only 50% of the boxes.
-    result.DependenceYX |> should equal 0.5
-    // X cannot be predicted from Y.
-    result.DependenceXY |> should equal 0.0
-
-module ClusteringTests =
-  open Clustering
-
-  let private dummyForest () =
-    let columnTypes = [ IntegerType; IntegerType; IntegerType; IntegerType ]
-    let rows = [| [| List [ Integer 0L ]; Integer 0L; Integer 0L; Integer 0L; Integer 0L |] |]
-
-    Forest(
-      rows,
-      createDataConvertors columnTypes rows,
-      noiselessAnonContext,
-      defaultBucketizationParams,
-      testColumnNames,
-      uniqueAidCountStrategy
-    )
-
-
-  let private a, b, c, d = 0, 1, 2, 3
-
-  // Fake base cluster results
-  let combinationRows =
-    Map.ofList
-      [
-        [ a; b ],
-        [
-          [| Integer 101; Integer 201 |]
-          [| Integer 102; Integer 202 |]
-          [| Integer 103; Integer 203 |]
-          [| Integer 104; Integer 204 |]
-          [| Integer 105; Integer 205 |]
-        ]
-        [ b; c ],
-        [
-          [| Integer 211; Integer 301 |]
-          [| Integer 212; Integer 302 |]
-          [| Integer 213; Integer 303 |]
-          [| Integer 214; Integer 304 |]
-          [| Integer 215; Integer 305 |]
-          [| Integer 216; Integer 306 |]
-        ]
-        [ c; d ],
-        [
-          [| Integer 311; Integer 401 |]
-          [| Integer 312; Integer 402 |]
-          [| Integer 313; Integer 403 |]
-          [| Integer 314; Integer 404 |]
-          [| Integer 315; Integer 405 |]
-          [| Integer 316; Integer 406 |]
-          [| Integer 317; Integer 407 |]
-          [| Integer 318; Integer 408 |]
-        ]
-      ]
-
-  let private fakeTreeHarvest =
-    fun _forest combination -> combinationRows.[Array.toList combination] :> Row seq
-
-  [<Fact>]
-  let ``Cluster stitching`` () =
-    let forest = dummyForest ()
-
-    // AB + (BC + CD)
-    let resultRows, resultColumns =
-      [
-        CompositeCluster(
-          [ b ],
-          [ BaseCluster [ a; b ]; CompositeCluster([ c ], [ BaseCluster [ b; c ]; BaseCluster [ c; d ] ]) ]
-        )
-      ]
-      |> buildTable fakeTreeHarvest forest
-
-    resultColumns |> should equal [| 0; 1; 2; 3 |]
-
-    // avg(5,avg(6,8)) = 6
-    resultRows |> should haveLength 6
-
-    resultRows
-    |> should
-         equal
-         [| // Columns should (mostly) match on last digit.
-           [| Integer 101L; Integer 201L; Integer 301L; Integer 401L |]
-           [| Integer 102L; Integer 212L; Integer 312L; Integer 402L |]
-           [| Integer 105L; Integer 215L; Integer 305L; Integer 405L |]
-           [| Integer 103L; Integer 214L; Integer 314L; Integer 404L |]
-           [| Integer 103L; Integer 203L; Integer 303L; Integer 403L |]
-           [| Integer 104L; Integer 204L; Integer 316L; Integer 406L |]
-         |]
-
-  [<Fact>]
-  let ``Cluster patching`` () =
-    let forest = dummyForest ()
-    // AB .. CD
-    let resultRows, resultColumns =
-      [ BaseCluster [ a; b ]; BaseCluster [ c; d ] ]
-      |> buildTable fakeTreeHarvest forest
-
-    resultColumns |> should equal [| 0; 1; 2; 3 |]
-
-    // avg(5,8) = 6
-    resultRows |> should haveLength 6
-
-    resultRows
-    |> should
-         equal
-         [| // AB and CD should match on last digit separately.
-           [| Integer 104L; Integer 204L; Integer 312L; Integer 402L |]
-           [| Integer 102L; Integer 202L; Integer 315L; Integer 405L |]
-           [| Integer 101L; Integer 201L; Integer 311L; Integer 401L |]
-           [| Integer 103L; Integer 203L; Integer 314L; Integer 404L |]
-           [| Integer 104L; Integer 204L; Integer 313L; Integer 403L |]
-           [| Integer 105L; Integer 205L; Integer 316L; Integer 406L |]
-         |]
+    result.Dependence |> should equal 0.5

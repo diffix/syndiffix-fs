@@ -62,7 +62,7 @@ let processDataWithParams anonContext bucketizationParams columns rows countStra
   forest.TopTree
   |> harvestBuckets
   |> generateMicrodata forest.DataConvertors forest.NullMappings
-  |> Seq.map Array.tail // Drop the dummy AID instances field.
+  |> Seq.map microdataRowToRow
   |> Seq.toArray
 
 let processData columns rows =

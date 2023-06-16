@@ -27,12 +27,14 @@ let ``String mapping`` () =
   (1.0, 1.0)
   ||> createRange
   |> convertor.FromRange
+  |> vfst
   |> unwrapString
   |> should equal "AAA"
 
   (3.0, 5.0)
   ||> createRange
   |> convertor.FromRange
+  |> vfst
   |> unwrapString
   |> should startWith "a*"
 
@@ -50,6 +52,11 @@ let ``Boolean mapping`` () =
   (0.0, 0.5)
   ||> createRange
   |> convertor.FromRange
+  |> vfst
   |> should equal (Boolean false)
 
-  (0.5, 1.0) ||> createRange |> convertor.FromRange |> should equal (Boolean true)
+  (0.5, 1.0)
+  ||> createRange
+  |> convertor.FromRange
+  |> vfst
+  |> should equal (Boolean true)
