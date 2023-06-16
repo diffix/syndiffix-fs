@@ -16,10 +16,35 @@ type KeyValuePair<'K, 'V> = Collections.Generic.KeyValuePair<'K, 'V>
 type HashSet<'T> = Collections.Generic.HashSet<'T>
 type Stack<'T> = Collections.Generic.Stack<'T>
 
+// Struct tuple deconstruction
+let inline vfst (struct (a, _): ValueTuple<_, _>) = a
+let inline vsnd (struct (_, b): ValueTuple<_, _>) = b
+
 // 3-tuple deconstruction.
 let inline fst3 (a, _, _) = a
 let inline snd3 (_, b, _) = b
 let inline thd3 (_, _, c) = c
+
+module Loop =
+  let inline forAll n predicate =
+    let mutable i = 0
+    let mutable result = true
+
+    while i < n && result do
+      result <- predicate i
+      i <- i + 1
+
+    result
+
+  let inline forSome n predicate =
+    let mutable i = 0
+    let mutable result = false
+
+    while i < n && not result do
+      result <- predicate i
+      i <- i + 1
+
+    result
 
 module String =
   let join (sep: string) (values: seq<'T>) = String.Join<'T>(sep, values)
@@ -91,4 +116,8 @@ module Hash =
 // introduced for compatibility of math-related functions with C (PostgreSQL)
 module Math =
   let roundAwayFromZero (x: float) : float =
-    System.Math.Round(x, MidpointRounding.AwayFromZero)
+    Math.Round(x, MidpointRounding.AwayFromZero)
+
+  let ceilBy n x = (ceil (x / n)) * n
+
+  let floorBy n x = (floor (x / n)) * n

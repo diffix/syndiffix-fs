@@ -16,9 +16,8 @@ type private Arguments =
   | No_Clustering
   | [<Unique>] Clustering_MainColumn of string
   | [<Unique>] Clustering_SampleSize of int
-  | [<Unique>] Clustering_MaxSize of int
+  | [<Unique>] Clustering_MaxWeight of float
   | [<Unique>] Clustering_Thresh_Merge of float
-  | [<Unique>] Clustering_Thresh_Patch of float
   | [<Unique>] Precision_Limit_Row_Fraction of int
   | [<Unique>] Precision_Limit_Depth_Threshold of int
   | Verbose
@@ -44,9 +43,8 @@ type private Arguments =
       | No_Clustering -> "Disables column clustering."
       | Clustering_MainColumn _ -> "Column to be prioritized in clusters."
       | Clustering_SampleSize _ -> "Table sample size when measuring dependence."
-      | Clustering_MaxSize _ -> "Maximum cluster size."
+      | Clustering_MaxWeight _ -> "Maximum cluster size, in weight units."
       | Clustering_Thresh_Merge _ -> "Dependence threshold for combining columns in a cluster."
-      | Clustering_Thresh_Patch _ -> "Dependence threshold for making a patch."
       | Precision_Limit_Row_Fraction _ ->
         "Tree nodes are allowed to split if `node_num_rows >= table_num_rows/row_fraction`."
       | Precision_Limit_Depth_Threshold _ -> "Tree depth threshold below which the `row-fraction` check is not applied."
@@ -137,12 +135,9 @@ let private setClusteringParams (parsedArguments: ParseResults<Arguments>) bucke
       ClusteringTableSampleSize =
         parsedArguments.TryGetResult Clustering_SampleSize
         |> Option.defaultValue bucketizationParams.ClusteringTableSampleSize
-      ClusteringMaxClusterSize =
-        parsedArguments.TryGetResult Clustering_MaxSize
-        |> Option.defaultValue bucketizationParams.ClusteringMaxClusterSize
-      ClusteringPatchThreshold =
-        parsedArguments.TryGetResult Clustering_Thresh_Patch
-        |> Option.defaultValue bucketizationParams.ClusteringPatchThreshold
+      ClusteringMaxClusterWeight =
+        parsedArguments.TryGetResult Clustering_MaxWeight
+        |> Option.defaultValue bucketizationParams.ClusteringMaxClusterWeight
       ClusteringMergeThreshold =
         parsedArguments.TryGetResult Clustering_Thresh_Merge
         |> Option.defaultValue bucketizationParams.ClusteringMergeThreshold

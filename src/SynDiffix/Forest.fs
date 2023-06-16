@@ -401,7 +401,8 @@ type Forest
   ) =
   let unsafeRandom = Random(0)
 
-  let dimensions = Seq.length dataConvertors
+  let dimensions = dataConvertors.Length
+  let entropy1Dim = Array.zeroCreate<float> dimensions
   let columnNames = columnNames
 
   let nullMappings, snappedRanges =
@@ -483,12 +484,12 @@ type Forest
   member this.Rows = rows
   member this.Dimensions = dimensions
   member this.NullMappings = nullMappings
+  member this.SnappedRanges = snappedRanges
   member this.DataConvertors = dataConvertors
   member this.Random = unsafeRandom
   member this.ColumnNames = columnNames
-
+  member this.Entropy1Dim = entropy1Dim
   member this.CountStrategy = countStrategy
-
   member this.TopTree = getTree [| 0 .. dimensions - 1 |]
 
   member this.GetTree(combination: Combination) =
@@ -504,4 +505,6 @@ type Forest
   member this.GetAvailableTrees() =
     treeCache |> Seq.map (fun pair -> pair.Value) |> Seq.toList
 
-  member this.SetCacheLevel level = cacheLevel <- level
+  member this.SetCacheLevel(level) = cacheLevel <- level
+
+  member this.DeriveUnsafeRandom() = Random(unsafeRandom.Next())
