@@ -30,9 +30,9 @@ jobs:
         run: |
           mkdir release
           if [ "${{ matrix.target }}" == "win" ]; then
-            7z a -tzip release/syndiffix_win_${{ github.ref_name }}.zip bin/*
+            7z a -tzip release/syndiffix_win_${{ github.ref_name }}.zip bin/* *.md
           else
-            tar czvf release/syndiffix_${{ matrix.target }}_${{ github.ref_name }}.tar.gz bin/*
+            tar czvf release/syndiffix_${{ matrix.target }}_${{ github.ref_name }}.tar.gz bin/* *.md
           fi
       - name: Release
         uses: softprops/action-gh-release@v1
