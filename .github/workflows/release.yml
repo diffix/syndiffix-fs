@@ -32,7 +32,7 @@ jobs:
           if [ "${{ matrix.target }}" == "win" ]; then
             7z a -tzip release/syndiffix_win_${{ github.ref_name }}.zip bin/*
           else
-            tar czvf release/syndiffix_${{ matrix.target }}_${{ github.ref_name }}.tar.gz -C bin .
+            tar czvf release/syndiffix_${{ matrix.target }}_${{ github.ref_name }}.tar.gz bin/*
           fi
       - name: Release
         uses: softprops/action-gh-release@v1
