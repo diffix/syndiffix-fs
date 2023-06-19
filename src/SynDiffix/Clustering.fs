@@ -514,7 +514,6 @@ module Clustering =
 
   let rec private stitchRec (state: StitchState) (leftRows: Span<MicrodataRow>) (rightRows: Span<MicrodataRow>) =
     if state.RemainingSortAttempts = 0 || leftRows.Length = 1 || rightRows.Length = 1 then
-      // eprintfn $"({state.Depth}) Merging {leftRows.Length}/{rightRows.Length}"
       mergeMicrodata state leftRows rightRows
     elif canSplit state then
       let context = state.Context
@@ -615,10 +614,6 @@ module Clustering =
     let stitchColumns = stitchColumns |> Array.sortBy (fun col -> forest.Entropy1Dim.[col], col)
     let allColumns = locateColumns leftCombination rightCombination
     let resultRows = MutableList<MicrodataRow>(leftRows.Length)
-
-    // eprintfn $"Stitching %A{leftCombination} + %A{rightCombination}"
-    // eprintfn $"Stitch columns: %A{stitchColumns}"
-    // eprintfn $"Derived columns: %A{derivedColumns}"
 
     let rootStitchRanges = forest.SnappedRanges |> getItemsCombination stitchColumns
 
