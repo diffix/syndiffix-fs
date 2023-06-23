@@ -10,20 +10,22 @@ integration of the mechanism into other projects.
 From inside the `src\SynDiffix` folder execute:
 
 ```
-dotnet run file.csv --columns c0:r c1:i c2:b --aidcolumns aid --verbose
+dotnet run file.csv --columns column0:r column1:i ...
 ```
 
 `<file.csv>` - Specifies the input CSV file.
 
-`--columns [<string>...]` - List of columns and their types in the format `column:t`, where `t` is one of the following:
+`--columns [<string>...]` - The selection of columns to synthesize and their types in the format `name:t`, where `t` is one of the following:
 `b`-boolean, `i`-integer, `r`-real, `t`-timestamp, `s`-string.
 
-`--aidcolumns [<string>...]` - Optional - List of entity ID columns used for anonymization. If not specified,
+### Optional arguments
+
+`--aidcolumns [<string>...]` - List of entity ID columns used for anonymization. If not specified,
 assumes each row represents a different entity.
 
-`--verbose` - Optional - Display extra output for debugging purposes.
+`--verbose` - Display extra output for debugging purposes.
 
-To change the anonymization parameters, the following optional arguments are available:
+#### Anonymization parameters
 
 `--lcf-low-threshold, -lcf <int>` - Low threshold for the low-count filter.
 
@@ -39,9 +41,11 @@ To change the anonymization parameters, the following optional arguments are ava
 
 `--layer-noise-sd, -noise_sd <double>` - Count SD for each noise layer.
 
-To change clustering parameters, the following optional arguments are available:
+#### Clustering parameters
 
 `--no-clustering` - Disables column clustering.
+
+`--clustering-maincolumn` - Column to be prioritized in clusters.
 
 `--clustering-samplesize <int>` - Table sample size when measuring dependence.
 
@@ -51,7 +55,7 @@ To change clustering parameters, the following optional arguments are available:
 
 `--clustering-thresh-patch <double>` - Dependence threshold for making a patch.
 
-To trade precision for performance, the following optional arguments are available:
+#### Precision parameters
 
 `--precision-limit-row-fraction <int>` - Tree nodes are allowed to split if `node_num_rows >= table_num_rows/row_fraction`.
 
