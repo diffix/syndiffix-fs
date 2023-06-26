@@ -333,7 +333,7 @@ module Clustering =
 
   type private ColumnLocation =
     {
-      SourceRow: int // 0=left, 1=right, 2=mixed
+      SourceRow: StitchOwner
       LeftIndex: ColumnIndex
       RightIndex: ColumnIndex
       ColumnId: ColumnId
@@ -352,7 +352,7 @@ module Clustering =
       | [] -> failwith "Impossible."
       | [ (tableIndex, columnIndex, columnId) ] ->
         {
-          SourceRow = tableIndex
+          SourceRow = if tableIndex = 0 then StitchOwner.Left else StitchOwner.Right
           LeftIndex = if tableIndex = 0 then columnIndex else -1
           RightIndex = if tableIndex = 1 then columnIndex else -1
           ColumnId = columnId
@@ -361,7 +361,7 @@ module Clustering =
         let sorted = bothSides |> List.sortBy fst3
 
         {
-          SourceRow = 2
+          SourceRow = StitchOwner.Shared
           LeftIndex = sorted.[0] |> snd3
           RightIndex = sorted.[1] |> snd3
           ColumnId = columnId
@@ -449,10 +449,14 @@ module Clustering =
     for j = 0 to numCols - 1 do
       let col = allColumns.[j]
 
-      if col.SourceRow = 0 then mergedRow.[j] <- leftRow.[col.LeftIndex]
-      elif col.SourceRow = 1 then mergedRow.[j] <- rightRow.[col.RightIndex]
-      elif pickSharedLeft then mergedRow.[j] <- leftRow.[col.LeftIndex]
-      else mergedRow.[j] <- rightRow.[col.RightIndex]
+      if col.SourceRow = StitchOwner.Left then
+        mergedRow.[j] <- leftRow.[col.LeftIndex]
+      elif col.SourceRow = StitchOwner.Right then
+        mergedRow.[j] <- rightRow.[col.RightIndex]
+      elif pickSharedLeft then
+        mergedRow.[j] <- leftRow.[col.LeftIndex]
+      else
+        mergedRow.[j] <- rightRow.[col.RightIndex]
 
     mergedRow
 
