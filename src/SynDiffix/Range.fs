@@ -24,11 +24,17 @@ type Range =
     | 1 -> { Min = this.Middle(); Max = this.Max }
     | _ -> failwith "Invalid index for range half!"
 
+  member this.LowerHalf() = { Min = this.Min; Max = this.Middle() }
+
+  member this.UpperHalf() = { Min = this.Middle(); Max = this.Max }
+
   member this.Contains(range: Range) =
     range.Min >= this.Min && range.Max <= this.Max
 
   member this.ContainsValue(value: float) =
     value = this.Min || (value > this.Min && value < this.Max)
+
+  member this.ContainsValueIncl(value: float) = value >= this.Min && value <= this.Max
 
   member this.Overlaps(range: Range) =
     range.Min < this.Max && range.Max > this.Min

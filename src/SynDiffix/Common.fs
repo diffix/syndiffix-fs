@@ -144,9 +144,8 @@ type BucketizationParams =
     RangeLowThreshold: int
     ClusteringEnabled: bool
     ClusteringTableSampleSize: int
-    ClusteringMaxClusterSize: int
+    ClusteringMaxClusterWeight: float
     ClusteringMergeThreshold: float
-    ClusteringPatchThreshold: float
     PrecisionLimitRowFraction: int
     PrecisionLimitDepthThreshold: int
   }
@@ -156,9 +155,8 @@ type BucketizationParams =
       RangeLowThreshold = 50
       ClusteringEnabled = true
       ClusteringTableSampleSize = 1000
-      ClusteringMaxClusterSize = 6
+      ClusteringMaxClusterWeight = 15.0
       ClusteringMergeThreshold = 0.1
-      ClusteringPatchThreshold = 0.0001
       PrecisionLimitRowFraction = 10000
       PrecisionLimitDepthThreshold = 12
     }
@@ -228,10 +226,16 @@ let TIMESTAMP_REFERENCE = DateTime(1800, 1, 1, 0, 0, 0, DateTimeKind.Utc)
 
 open SynDiffix.Range
 
+type MicrodataValue = ValueTuple<Value, float>
+type MicrodataRow = MicrodataValue array
+
+let inline microdataRowToRow (microdataRow: MicrodataRow) : Row = microdataRow |> Array.map (vfst)
+
 type IDataConvertor =
+  abstract ColumnType: ExpressionType
   // Casts a `Value` to a `float` in order to match it against a `Range`.
   abstract ToFloat: Value -> float
   // Generates a synthetic `Value` from an anonymized `Range`.
-  abstract FromRange: Range -> Value
+  abstract FromRange: Range -> MicrodataValue
 
 type IDataConvertors = IDataConvertor array

@@ -5,6 +5,7 @@ open System.IO
 open System.Security.Cryptography
 
 open SynDiffix.Clustering
+open SynDiffix.Clustering.Clustering
 open SynDiffix.Forest
 open SynDiffix.Microdata
 open SynDiffix.Counter
@@ -59,10 +60,11 @@ let private printScores (scores: float[,]) =
   eprintf " = "
 
   for j in 0 .. dims - 1 do
-    let mutable total = -1.0
+    let mutable total = 0.0
 
     for i in 0 .. dims - 1 do
-      total <- total + scores.[i, j]
+      if i <> j then
+        total <- total + scores.[i, j]
 
     eprintf "%s" (total.ToString("0.00").PadLeft(6, ' '))
 
@@ -77,7 +79,7 @@ let transform treeCacheLevel (arguments: ParsedArguments) =
 
   let salt =
     use fileStream = File.Open(arguments.CsvPath, FileMode.Open, FileAccess.Read)
-    (SHA256.Create()).ComputeHash fileStream
+    SHA256.Create().ComputeHash(fileStream)
 
   let anonParams = { arguments.AnonymizationParams with Salt = salt }
 
@@ -107,10 +109,16 @@ let transform treeCacheLevel (arguments: ParsedArguments) =
 
   let allColumns = [ 0 .. forest.Dimensions - 1 ]
 
-  let patchList =
+  let clusters: Clustering.Clusters =
     if arguments.BucketizationParams.ClusteringEnabled then
-      if arguments.BucketizationParams.ClusteringMaxClusterSize <= 1 then
-        allColumns |> List.map (fun col -> Clustering.BaseCluster [ col ])
+      if arguments.BucketizationParams.ClusteringMaxClusterWeight <= 1 then
+        {
+          InitialCluster = [| 0 |]
+          DerivedClusters =
+            allColumns
+            |> List.tail
+            |> List.map (fun c -> (StitchOwner.Shared, [||], [| c |]))
+        }
       else
         let forest' = if Sampling.shouldSample forest then Sampling.sampleForest forest else forest
 
@@ -118,9 +126,19 @@ let transform treeCacheLevel (arguments: ParsedArguments) =
           eprintfn "Measuring dependence..."
 
         let clusteringContext = Solver.clusteringContext arguments.MainColumn forest'
+        // Copy over the measured entropy.
+        Array.blit clusteringContext.Entropy1Dim 0 forest.Entropy1Dim 0 forest.Dimensions
 
         if arguments.Verbose then
           printScores clusteringContext.DependencyMatrix
+
+          eprintfn "=== Columns ==="
+          let entropy1Dim = clusteringContext.Entropy1Dim
+
+          columns
+          |> List.iteri (fun i col ->
+            eprintfn $"{i.ToString().PadLeft(3, ' ')} {col.Name} ({col.Type}); Entropy = {entropy1Dim.[i]}"
+          )
 
         if arguments.Verbose then
           eprintfn "Assigning clusters..."
@@ -130,15 +148,13 @@ let transform treeCacheLevel (arguments: ParsedArguments) =
       if arguments.Verbose then
         eprintfn "Using all columns."
 
-      [ Clustering.BaseCluster allColumns ]
+      { InitialCluster = List.toArray allColumns; DerivedClusters = [] }
 
   if arguments.Verbose then
-    eprintfn $"Clusters: %A{patchList}."
-    eprintfn $"Num patches: %A{patchList.Length}."
+    eprintfn $"Clusters: %A{clusters}."
     eprintfn "Materializing clusters..."
 
-  // TODO: Add AID column here after removing from materializeTree.
-  let synRows, columnIds = Clustering.buildTable materializeTree forest patchList
+  let synRows, columnIds = Clustering.buildTable materializeTree forest clusters
 
   if arguments.Verbose then
     eprintfn "Microtable built."

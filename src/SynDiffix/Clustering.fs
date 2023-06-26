@@ -1,10 +1,13 @@
 module SynDiffix.Clustering
 
 open System
+open System.Collections.Generic
 open FsToolkit.ErrorHandling
 
 open SynDiffix.Combination
 open SynDiffix.Forest
+
+// ----------------------------------------------------------------
 
 module Sampling =
   let shouldSample (forest: Forest) =
@@ -34,7 +37,7 @@ module Sampling =
       }
 
     // New RNG prevents `forest.Random` from being affected by sample size.
-    let random = Random(forest.Random.Next())
+    let random = forest.DeriveUnsafeRandom()
 
     let origRows = forest.Rows
     let numSamples = forest.BucketizationParams.ClusteringTableSampleSize
@@ -48,6 +51,7 @@ module Sampling =
       forest.CountStrategy
     )
 
+// ----------------------------------------------------------------
 
 module Dependence =
   // Aliases to help tell what nodes functions expect.
@@ -67,8 +71,8 @@ module Dependence =
   type Result =
     {
       Columns: int * int
-      DependenceXY: float
-      DependenceYX: float
+      Dependence: float
+      Complexity: int64
       Scores: Score list
       MeasureTime: TimeSpan
     }
@@ -103,7 +107,7 @@ module Dependence =
   let private snappedRange index (node: OneDimNode) =
     (Tree.nodeData node).SnappedRanges.[index]
 
-  let measure (colX: int) (colY: int) (forest: Forest) : Result =
+  let measureDependence (colX: int) (colY: int) (forest: Forest) : Result =
     // Ensure colX < colY.
     if colX >= colY then
       failwith "Invalid input."
@@ -116,9 +120,7 @@ module Dependence =
 
     // Walk state
     let scores = MutableList<Score>()
-    let mutable dataLossXY = 0.0
-    let mutable dataLossYX = 0.0
-    let mutable totalActualCount = 0.0
+    let mutable complexity = 0L
 
     let rec walk (nodeXY: TwoDimNode option) (nodeX: OneDimNode) (nodeY: OneDimNode) =
       option {
@@ -127,9 +129,14 @@ module Dependence =
         let! countY = nodeY |> count |> mustPassRangeThresh
 
         // Compute and store score.
-        let actual2dimCount = nodeXY |> Option.map count |> Option.defaultValue 0.
+        let actual2dimCount =
+          match nodeXY with
+          | Some nodeXY ->
+            complexity <- complexity + 1L
+            count nodeXY
+          | None -> 0.
+
         let expected2dimCount = (countX * countY) / numRows
-        totalActualCount <- totalActualCount + actual2dimCount
 
         let score =
           (abs (expected2dimCount - actual2dimCount))
@@ -152,7 +159,6 @@ module Dependence =
           // Stop walk if both 1-dims are singularities.
           ()
         elif isSingularity nodeX then
-          dataLossXY <- dataLossXY + actual2dimCount
           let xSingularity = singularityValue nodeX
 
           for idChildY in 0..1 do
@@ -172,7 +178,6 @@ module Dependence =
               walk childXY nodeX childY
             )
         elif isSingularity nodeY then
-          dataLossYX <- dataLossYX + actual2dimCount
           let ySingularity = singularityValue nodeY
 
           for idChildX in 0..1 do
@@ -224,56 +229,79 @@ module Dependence =
       else
         0., 0.
 
-    let averageScore = if totalCount > 0. then totalWeightedScore / totalCount else 0.
-
-    let dependenceXY, dependenceYX =
-      if totalActualCount > 0.0 then
-        totalActualCount <- totalActualCount - (count rootXY) // Skip root measurement.
-
-        let scaledScore loss =
-          if loss = 0.0 then averageScore
-          elif loss >= totalActualCount then 0.0
-          else averageScore * (1.0 - (loss / totalActualCount))
-
-        scaledScore dataLossYX, scaledScore dataLossXY
-      else
-        averageScore, averageScore
-
     {
       Columns = colX, colY
-      DependenceXY = dependenceXY
-      DependenceYX = dependenceYX
+      Dependence = if totalCount > 0. then totalWeightedScore / totalCount else 0.
+      Complexity = complexity
       Scores = Seq.toList scores
       MeasureTime = stopwatch.Elapsed
     }
 
-  let measureAll (forest: Forest) : float[,] =
+  type DependenceMeasurements =
+    { DependencyMatrix: float[,]; ComplexityMatrix: int64[,]; Entropy1Dim: float[] }
+
+  let private measureEntropy (root: AnyDimNode) =
+    let numRows = count root
+    let mutable entropy = 0.0
+
+    let rec entropyWalk (node: AnyDimNode) =
+      match node with
+      | Tree.Branch branch -> branch.Children |> Map.iter (fun _ child -> entropyWalk child)
+      | Tree.Leaf _ ->
+        let count = count node
+        entropy <- entropy - (count / numRows * Math.Log2(count / numRows))
+
+    entropyWalk root
+    entropy
+
+  let measureAll (forest: Forest) : DependenceMeasurements =
     let numColumns = forest.Dimensions
     let dependencyMatrix = Array2D.create<float> numColumns numColumns 1.0
+    let complexityMatrix = Array2D.create<int64> numColumns numColumns 0
+    let entropy1Dim = Array.init numColumns (fun i -> forest.GetTree([| i |]) |> measureEntropy)
 
     generateCombinations 2 numColumns
     |> Seq.iter (fun comb ->
       let x, y = comb[0], comb[1]
-      let score = (forest |> measure x y)
-      dependencyMatrix.[x, y] <- score.DependenceXY
-      dependencyMatrix.[y, x] <- score.DependenceYX
+      let score = (forest |> measureDependence x y)
+
+      let dependence = score.Dependence
+      dependencyMatrix.[x, y] <- dependence
+      dependencyMatrix.[y, x] <- dependence
+      complexityMatrix.[x, y] <- score.Complexity
+      complexityMatrix.[y, x] <- score.Complexity
     )
 
-    dependencyMatrix
+    {
+      DependencyMatrix = dependencyMatrix
+      ComplexityMatrix = complexityMatrix
+      Entropy1Dim = entropy1Dim
+    }
+
+// ----------------------------------------------------------------
 
 module Clustering =
   type ColumnId = int // Global index of a column.
   type private ColumnIndex = int // Local index of a column in a micro-table.
 
-  type Cluster =
-    | BaseCluster of columns: ColumnId list
-    | CompositeCluster of stitchColumns: ColumnId list * clusters: Cluster list
+  type StitchOwner =
+    | Left = 0
+    | Right = 1
+    | Shared = 2
 
-  type PatchList = Cluster list
+  type DerivedCluster = StitchOwner * ColumnId array * ColumnId array // owner, stitch columns, derived columns
 
-  type TreeMaterializer = Forest -> Combination -> Row seq
+  type Clusters = { InitialCluster: ColumnId array; DerivedClusters: DerivedCluster list }
 
-  let private shuffleRows (random: Random) (rows: Row array) : Row array =
+  type TreeMaterializer = Forest -> ColumnId seq -> MicrodataRow array * Combination
+
+  let private isIntegral (dataConvertor: IDataConvertor) =
+    match dataConvertor.ColumnType with
+    | RealType
+    | TimestampType -> false
+    | _ -> true
+
+  let private shuffleRows (random: Random) (rows: Span<MicrodataRow>) =
     let mutable i = rows.Length - 1
 
     while i > 0 do
@@ -283,345 +311,569 @@ module Clustering =
       rows.[j] <- temp
       i <- i - 1
 
-    rows
-
-  let private sortRowsBy (columns: int array) (rows: Row array) : Row array =
-    let comparer = comparer Ascending NullsLast
-    let columns = Array.toList columns
-
-    let rec compare remainingColumns (rowA: Row) (rowB: Row) =
-      match remainingColumns with
-      | [] -> 0
-      | column :: tail ->
-        let valueA = rowA.[column]
-        let valueB = rowB.[column]
-
-        match comparer valueA valueB with
-        | 0 -> compare tail rowA rowB
-        | order -> order
-
-    rows |> Array.sortWith (compare columns)
-
   let private averageLength microTables =
     microTables |> List.averageBy (fst >> Array.length >> float) |> round |> int
 
-  let private alignLength (random: Random) length (microTable: Row array) =
+  let private alignLength (random: Random) length (microTable: Span<MicrodataRow>) : Span<MicrodataRow> =
     if length = microTable.Length then
       microTable
     elif length < microTable.Length then
-      Array.truncate length microTable
+      microTable.Slice(0, length)
     else
-      let randomSubset =
-        Array.init (length - microTable.Length) (fun _ -> microTable[random.Next(microTable.Length)])
+      let copy = Array.zeroCreate length
+      microTable.CopyTo(Span(copy))
 
-      Array.concat [ microTable; randomSubset ]
+      for i = microTable.Length to length - 1 do
+        copy.[i] <- microTable[random.Next(microTable.Length)]
+
+      Span(copy)
 
   let private findIndexes subset superset =
     subset |> Array.map (fun c -> Array.findIndex ((=) c) superset)
 
-  let private findIndexesExcept subset superset =
-    superset
-    |> Array.mapi (fun i c -> if subset |> Array.contains c then None else Some i)
-    |> Array.choose id
+  type private ColumnLocation =
+    {
+      SourceRow: StitchOwner
+      LeftIndex: ColumnIndex
+      RightIndex: ColumnIndex
+      ColumnId: ColumnId
+    }
 
-  let private stitchMicroTables
-    (random: Random)
-    (stitchColumns: ColumnId array)
-    (left: Row array, leftColumns: ColumnId array)
-    (right: Row array, rightColumns: ColumnId array)
+  let private locateColumns (leftCombination: Combination) (rightCombination: Combination) : ColumnLocation array =
+    [ leftCombination; rightCombination ]
+    |> Seq.indexed
+    |> Seq.collect (fun (tableIndex, columns) ->
+      columns
+      |> Array.mapi (fun columnIndex columnId -> (tableIndex, columnIndex, columnId))
+    )
+    |> Seq.groupBy thd3
+    |> Seq.map (fun (columnId, sources) ->
+      match Seq.toList sources with
+      | [] -> failwith "Impossible."
+      | [ (tableIndex, columnIndex, columnId) ] ->
+        {
+          SourceRow = if tableIndex = 0 then StitchOwner.Left else StitchOwner.Right
+          LeftIndex = if tableIndex = 0 then columnIndex else -1
+          RightIndex = if tableIndex = 1 then columnIndex else -1
+          ColumnId = columnId
+        }
+      | bothSides ->
+        let sorted = bothSides |> List.sortBy fst3
+
+        {
+          SourceRow = StitchOwner.Shared
+          LeftIndex = sorted.[0] |> snd3
+          RightIndex = sorted.[1] |> snd3
+          ColumnId = columnId
+        }
+    )
+    |> Seq.sortBy (fun c -> c.ColumnId)
+    |> Seq.toArray
+
+  let rec private binarySearch
+    (rows: Span<MicrodataRow>)
+    (column: ColumnIndex)
+    (target: float)
+    (start: int)
+    (endExclusive: int)
     =
-    assert (left.Length = right.Length)
+    if start >= endExclusive then
+      -1
+    else
+      let mid = (start + endExclusive) / 2
 
-    let leftStitchIndexes = leftColumns |> findIndexes stitchColumns
-    let leftDataIndexes = leftColumns |> findIndexesExcept stitchColumns
-
-    let rightStitchIndexes = rightColumns |> findIndexes stitchColumns
-    let rightDataIndexes = rightColumns |> findIndexesExcept stitchColumns
-
-    (left |> shuffleRows random |> sortRowsBy leftStitchIndexes,
-     right |> shuffleRows random |> sortRowsBy rightStitchIndexes)
-    ||> Array.mapi2 (fun i leftRow rightRow ->
-      let sharedData =
-        if i % 2 = 0 then
-          leftRow |> getItemsCombination leftStitchIndexes
+      if vsnd rows.[mid].[column] >= target then
+        if mid = 0 || vsnd rows.[mid - 1].[column] < target then
+          mid
         else
-          rightRow |> getItemsCombination rightStitchIndexes
+          binarySearch rows column target start mid
+      else
+        binarySearch rows column target (mid + 1) endExclusive
 
-      let leftData = leftRow |> getItemsCombination leftDataIndexes
-      let rightData = rightRow |> getItemsCombination rightDataIndexes
+  type private SingleColumnComparer(key: ColumnIndex) =
+    interface IComparer<MicrodataRow> with
+      member this.Compare(x, y) = (vsnd x.[key]).CompareTo(vsnd y.[key])
 
-      Array.concat [ sharedData; leftData; rightData ]
-    ),
-    // leftColumns and rightColumns include stitchColumns, so we need to deduplicate.
-    Array.concat [ stitchColumns; leftColumns; rightColumns ] |> Array.distinct
+  type private MultipleColumnsComparer(keys: ColumnIndex array) =
+    interface IComparer<MicrodataRow> with
+      member this.Compare(x, y) =
+        let mutable result = 0
+        let mutable i = 0
 
-  let private patchMicroTables (random: Random) (microTables: List<Row array * ColumnId array>) =
-    let allColumns =
-      microTables
-      |> Seq.indexed
-      |> Seq.collect (fun (tableIndex, (_rows, columns)) ->
-        columns
-        |> Array.mapi (fun columnIndex columnId -> (tableIndex, columnIndex, columnId))
-      )
-      |> Seq.sortBy thd3
-      |> Seq.toArray
+        while result = 0 && i < keys.Length do
+          let key = keys.[i]
+          result <- (vsnd x.[key]).CompareTo(vsnd y.[key])
+          i <- i + 1
 
-    let avgLength = averageLength microTables
+        result
 
-    let rows =
-      microTables
-      |> List.map (fst >> alignLength random avgLength >> shuffleRows random)
-      |> List.toArray
+  let private makeComparer (keys: ColumnIndex array) : IComparer<MicrodataRow> =
+    if keys.Length = 1 then
+      SingleColumnComparer(keys.[0])
+    else
+      MultipleColumnsComparer(keys)
 
-    Array.init
-      avgLength
-      (fun rowIndex ->
-        allColumns
-        |> Array.map (fun (tableIndex, columnIndex, _columnId) -> rows.[tableIndex].[rowIndex].[columnIndex])
-      ),
-    allColumns |> Array.map thd3
+  type private StitchContext =
+    {
+      Random: Random
+      StitchOwner: StitchOwner
+      AllColumns: ColumnLocation array
+      Entropy1Dim: float[]
+      StitchMaxValues: float[]
+      StitchIsIntegral: bool[]
+      LeftStitchIndexes: ColumnIndex array
+      RightStitchIndexes: ColumnIndex array
+      ResultRows: MutableList<MicrodataRow>
+    }
+    member this.NumStitchColumns = this.LeftStitchIndexes.Length
 
-  let rec private materializeCluster (materializeTree: TreeMaterializer) (forest: Forest) (cluster: Cluster) =
-    match cluster with
-    | BaseCluster columns ->
-      let combination = List.toArray columns
-      Array.sortInPlace combination
-      materializeTree forest combination |> Seq.toArray, combination
+  type private StitchState =
+    {
+      Depth: int
+      StitchRanges: Range.Ranges
+      NextSortColumn: int
+      CurrentlySortedBy: int
+      RemainingSortAttempts: int
+      Context: StitchContext
+    }
 
-    | CompositeCluster(stitchColumns, clusters) ->
-      let stitchColumns = List.toArray stitchColumns
-      let microTables = clusters |> List.map (materializeCluster materializeTree forest)
-      let avgLength = averageLength microTables
+  let private mergeRow
+    (allColumns: ColumnLocation array)
+    (pickSharedLeft: bool)
+    (leftRow: MicrodataRow)
+    (rightRow: MicrodataRow)
+    =
+    let numCols = allColumns.Length
+    let mergedRow = Array.zeroCreate numCols
 
-      microTables
-      |> List.map (fun (microTable, columns) -> microTable |> alignLength forest.Random avgLength, columns)
-      |> List.reduce (fun acc next -> stitchMicroTables forest.Random stitchColumns acc next)
+    for j = 0 to numCols - 1 do
+      let col = allColumns.[j]
 
-  let buildTable (materializeTree: TreeMaterializer) (forest: Forest) (patchList: PatchList) =
-    patchList
-    |> List.map (materializeCluster materializeTree forest)
-    |> patchMicroTables forest.Random
+      if col.SourceRow = StitchOwner.Left then
+        mergedRow.[j] <- leftRow.[col.LeftIndex]
+      elif col.SourceRow = StitchOwner.Right then
+        mergedRow.[j] <- rightRow.[col.RightIndex]
+      elif pickSharedLeft then
+        mergedRow.[j] <- leftRow.[col.LeftIndex]
+      else
+        mergedRow.[j] <- rightRow.[col.RightIndex]
+
+    mergedRow
+
+  let private mergeMicrodata (state: StitchState) (leftRows: Span<MicrodataRow>) (rightRows: Span<MicrodataRow>) =
+    if leftRows.Length = 0 || rightRows.Length = 0 then
+      failwith "Attempted a stitch with no rows."
+
+    let context = state.Context
+    let stitchOwner = context.StitchOwner
+    let random = context.Random
+    let allColumns = context.AllColumns
+    let numRows = ((float leftRows.Length + float rightRows.Length) / 2.0) |> round |> int
+
+    // This time we shuffle to remove previous sorting in order to safely discard rows.
+
+    // Process one side at a time for hopefully better CPU caching.
+    shuffleRows random leftRows
+    let leftRows = alignLength random numRows leftRows
+    leftRows.Sort(makeComparer context.LeftStitchIndexes)
+
+    shuffleRows random rightRows
+    let rightRows = alignLength random numRows rightRows
+    rightRows.Sort(makeComparer context.RightStitchIndexes)
+
+    for i = 0 to numRows - 1 do
+      let pickSharedLeft =
+        if stitchOwner = StitchOwner.Shared then
+          i % 2 = 0
+        else
+          stitchOwner = StitchOwner.Left
+
+      context.ResultRows.Add(mergeRow allColumns pickSharedLeft leftRows.[i] rightRows.[i])
+
+  [<Literal>]
+  let private THRESH_REL = 0.7
+
+  let private acceptableDistribution (left: int) (right: int) =
+    let min = min left right
+    let max = max left right
+
+    if min = 0 then
+      false
+    else
+      let relDiff = float min / float max
+      relDiff >= THRESH_REL
+
+  let private canSplit (state: StitchState) =
+    let context = state.Context
+    let splitColumn = state.NextSortColumn
+
+    if context.StitchIsIntegral.[splitColumn] then
+      let range = state.StitchRanges.[splitColumn]
+
+      if context.StitchMaxValues.[splitColumn] = range.Max then
+        range.Size() >= 1.0
+      else
+        range.Size() > 1.0
+    else
+      true
+
+  let rec private stitchRec (state: StitchState) (leftRows: Span<MicrodataRow>) (rightRows: Span<MicrodataRow>) =
+    if state.RemainingSortAttempts = 0 || leftRows.Length = 1 || rightRows.Length = 1 then
+      mergeMicrodata state leftRows rightRows
+    elif canSplit state then
+      let context = state.Context
+      let currentSortColumn = state.NextSortColumn
+
+      let leftStitchIndex = context.LeftStitchIndexes.[currentSortColumn]
+      let rightStitchIndex = context.RightStitchIndexes.[currentSortColumn]
+
+      if state.CurrentlySortedBy <> currentSortColumn then
+        leftRows.Sort(SingleColumnComparer(leftStitchIndex))
+        rightRows.Sort(SingleColumnComparer(rightStitchIndex))
+
+      let range = state.StitchRanges.[currentSortColumn]
+      let rangeMiddle = range.Middle()
+
+      let leftSplitPoint = binarySearch leftRows leftStitchIndex rangeMiddle 0 leftRows.Length |> max 0
+      let rightSplitPoint = binarySearch rightRows rightStitchIndex rangeMiddle 0 rightRows.Length |> max 0
+
+      let leftLower = leftRows.Slice(0, leftSplitPoint)
+      let rightLower = rightRows.Slice(0, rightSplitPoint)
+
+      let leftUpper = leftRows.Slice(leftSplitPoint)
+      let rightUpper = rightRows.Slice(rightSplitPoint)
+
+      if
+        acceptableDistribution leftLower.Length rightLower.Length
+        && acceptableDistribution leftUpper.Length rightUpper.Length
+      then
+        // Visit lower half.
+        stitchRec
+          { state with
+              Depth = state.Depth + 1
+              StitchRanges = state.StitchRanges |> Array.updateAt currentSortColumn (range.LowerHalf())
+              NextSortColumn = (currentSortColumn + 1) % context.NumStitchColumns
+              CurrentlySortedBy = currentSortColumn
+              RemainingSortAttempts = context.NumStitchColumns
+          }
+          leftLower
+          rightLower
+
+        // Visit upper half.
+        stitchRec
+          { state with
+              Depth = state.Depth + 1
+              StitchRanges = state.StitchRanges |> Array.updateAt currentSortColumn (range.UpperHalf())
+              NextSortColumn = (currentSortColumn + 1) % context.NumStitchColumns
+              CurrentlySortedBy = currentSortColumn
+              RemainingSortAttempts = context.NumStitchColumns
+          }
+          leftUpper
+          rightUpper
+      else
+        let nextStitchRanges =
+          if leftLower.Length = 0 && rightLower.Length = 0 then
+            state.StitchRanges |> Array.updateAt currentSortColumn (range.UpperHalf())
+          elif leftUpper.Length = 0 && rightUpper.Length = 0 then
+            state.StitchRanges |> Array.updateAt currentSortColumn (range.LowerHalf())
+          else
+            state.StitchRanges
+
+        // Try next column.
+        stitchRec
+          { state with
+              NextSortColumn = (currentSortColumn + 1) % context.NumStitchColumns
+              StitchRanges = nextStitchRanges
+              CurrentlySortedBy = currentSortColumn
+              RemainingSortAttempts = state.RemainingSortAttempts - 1
+          }
+          leftRows
+          rightRows
+    else
+      // Try next column.
+      stitchRec
+        { state with
+            NextSortColumn = (state.NextSortColumn + 1) % state.Context.NumStitchColumns
+            RemainingSortAttempts = state.RemainingSortAttempts - 1
+        }
+        leftRows
+        rightRows
+
+  let private doStitch
+    (forest: Forest)
+    ((leftRows, leftCombination): MicrodataRow array * Combination)
+    ((rightRows, rightCombination): MicrodataRow array * Combination)
+    ((stitchOwner, stitchColumns, derivedColumns): DerivedCluster)
+    : MicrodataRow array * Combination =
+    if
+      leftCombination.Length = 0
+      || stitchColumns.Length = 0
+      || derivedColumns.Length = 0
+    then
+      failwith "Invalid clusters in stitch operation."
+
+    if rightRows.Length = 0 then
+      failwith $"Empty sequence in cluster %A{rightCombination}."
+
+    // Pick lowest entropy column first.
+    let stitchColumns = stitchColumns |> Array.sortBy (fun col -> forest.Entropy1Dim.[col], col)
+    let allColumns = locateColumns leftCombination rightCombination
+    let resultRows = MutableList<MicrodataRow>(leftRows.Length)
+
+    let rootStitchRanges = forest.SnappedRanges |> getItemsCombination stitchColumns
+
+    let stitchState =
+      {
+        Depth = 0
+        StitchRanges = rootStitchRanges
+        NextSortColumn = 0
+        CurrentlySortedBy = -1
+        RemainingSortAttempts = stitchColumns.Length
+        Context =
+          {
+            Random = forest.Random
+            StitchOwner = stitchOwner
+            AllColumns = allColumns
+            Entropy1Dim = forest.Entropy1Dim |> getItemsCombination stitchColumns
+            StitchMaxValues = rootStitchRanges |> Array.map (fun r -> r.Max)
+            StitchIsIntegral =
+              forest.DataConvertors
+              |> getItemsCombination stitchColumns
+              |> Array.map isIntegral
+            LeftStitchIndexes = leftCombination |> findIndexes stitchColumns
+            RightStitchIndexes = rightCombination |> findIndexes stitchColumns
+            ResultRows = resultRows
+          }
+      }
+
+    stitchRec stitchState (Span(leftRows)) (Span(rightRows))
+
+    Seq.toArray resultRows, allColumns |> Array.map (fun c -> c.ColumnId)
+
+  let private doPatch
+    (random: Random)
+    ((leftRows, leftCombination): MicrodataRow array * Combination)
+    ((rightRows, rightCombination): MicrodataRow array * Combination)
+    : MicrodataRow array * Combination =
+    let DOESNT_MATTER = true
+
+    let allColumns = locateColumns leftCombination rightCombination
+    let numRows = leftRows.Length
+
+    let leftRows = Span(leftRows)
+    let rightRows = Span(rightRows)
+
+    // No need to shuffle left rows in a patch.
+
+    // F# does not allow piping ref structs...
+    shuffleRows random rightRows
+    let rightRows = alignLength random numRows rightRows
+
+    let allRows = Array.zeroCreate<MicrodataRow> numRows
+
+    for i = 0 to numRows - 1 do
+      allRows.[i] <- mergeRow allColumns DOESNT_MATTER leftRows.[i] rightRows.[i]
+
+    allRows, allColumns |> Array.map (fun c -> c.ColumnId)
+
+  let private stitch
+    (materializeTree: TreeMaterializer)
+    (forest: Forest)
+    (left: MicrodataRow array * Combination)
+    ((stitchOwner, stitchColumns, derivedColumns): DerivedCluster)
+    : MicrodataRow array * Combination =
+    let right = materializeTree forest (Array.append stitchColumns derivedColumns)
+
+    if stitchColumns.Length = 0 then
+      doPatch forest.Random left right
+    else
+      doStitch forest left right (stitchOwner, stitchColumns, derivedColumns)
+
+  let buildTable (materializeTree: TreeMaterializer) (forest: Forest) (clusters: Clusters) =
+    clusters.DerivedClusters
+    |> List.fold (stitch materializeTree forest) (materializeTree forest clusters.InitialCluster)
+    |> mapFst (Array.map microdataRowToRow)
+
+// ----------------------------------------------------------------
+
+open Clustering
 
 module Solver =
-  open Clustering
-
   type private JoinTree = { JoinColumn: ColumnId; Children: JoinTree list }
 
   type ClusteringContext =
     {
       DependencyMatrix: float[,]
-      MainColumn: ColumnId option
+      ComplexityMatrix: int64[,]
+      Entropy1Dim: float[]
+      TotalDependencePerColumn: float[]
       AnonymizationParams: AnonymizationParams
       BucketizationParams: BucketizationParams
       Random: Random
     }
     member this.NumColumns = this.DependencyMatrix.GetLength(0)
 
-  type private MutableCluster = MutableList<ColumnId>
-  type private MutablePatch = MutableList<MutableCluster>
+  type private MutableCluster = { Columns: HashSet<ColumnId>; mutable TotalEntropy: float }
 
-  let private buildClusters (context: ClusteringContext) (permutation: int array) : PatchList =
-    let numColumns = context.NumColumns
-    let mainColumn = context.MainColumn
+  [<Literal>]
+  let private DERIVED_COLS_MIN = 1
+
+  [<Literal>]
+  let private DERIVED_COLS_RESERVED = 0.5
+
+  [<Literal>]
+  let private DERIVED_COLS_RATIO = 0.7
+
+  let private buildClusters (context: ClusteringContext) (permutation: int array) : Clusters =
+    let mergeThresh = context.BucketizationParams.ClusteringMergeThreshold
+    let maxWeight = context.BucketizationParams.ClusteringMaxClusterWeight
+
+    let dependencyMatrix = context.DependencyMatrix
+    let entropy1Dim = context.Entropy1Dim
+
+    let clusters = MutableList<MutableCluster>()
+
+    let colWeight col = 1.0 + sqrt (max entropy1Dim.[col] 1.0)
+
+    // For each column in the permutation, we find the "best" cluster that has available space.
+    // We judge how suitable a cluster is by average dependence score.
+    // If no available cluster is found, we start a new one.
+    // After all clusters are built, we fill remaining space of non-initial clusters with stitch columns.
+
+    for col in permutation do
+      let bestCluster =
+        clusters
+        |> Seq.mapi (fun i cluster ->
+          cluster,
+          (if i = 0 then maxWeight else DERIVED_COLS_RATIO * maxWeight),
+          cluster.Columns |> Seq.averageBy (fun c -> dependencyMatrix.[col, c])
+        )
+        |> Seq.filter (fun (cluster, capacity, averageQuality) ->
+          averageQuality >= mergeThresh
+          && (cluster.Columns.Count < DERIVED_COLS_MIN
+              || cluster.TotalEntropy + colWeight col <= capacity)
+        )
+        |> Seq.sortByDescending thd3
+        |> Seq.tryHead
+
+      match bestCluster with
+      | Some(bestCluster, _capacity, _averageQuality) ->
+        bestCluster.Columns.Add(col) |> ignore
+        bestCluster.TotalEntropy <- bestCluster.TotalEntropy + colWeight col
+      | None -> clusters.Add({ Columns = HashSet([ col ]); TotalEntropy = colWeight col })
+
+    let derivedClusters = MutableList<DerivedCluster>()
+    let availableColumns = HashSet<ColumnId>(clusters.[0].Columns)
+
+    for i = 1 to clusters.Count - 1 do
+      let cluster = clusters.[i]
+      let mutable totalWeight = max cluster.TotalEntropy (DERIVED_COLS_RESERVED * maxWeight)
+
+      let stitchColumns = HashSet<ColumnId>()
+      let derivedColumns = Seq.toArray cluster.Columns
+
+      let bestStitchColumns =
+        availableColumns
+        |> Seq.map (fun cLeft ->
+          let mutable depSum = 0.0
+          let mutable depMax = -1.0
+
+          for cRight in derivedColumns do
+            let dep = dependencyMatrix.[cLeft, cRight]
+            depSum <- depSum + dep
+            depMax <- max depMax dep
+
+          let depAvg = depSum / float derivedColumns.Length
+
+          cLeft, depAvg, depMax
+        )
+        |> Seq.sortByDescending (fun (cLeft, depAvg, depMax) ->
+          depAvg |> Math.floorBy 0.05, depMax |> Math.floorBy 0.01, context.TotalDependencePerColumn.[cLeft]
+        )
+        |> Seq.toArray
+
+      // Always pick best match.
+      do
+        let bestStitchCol = fst3 bestStitchColumns.[0]
+        stitchColumns.Add(bestStitchCol) |> ignore
+        totalWeight <- totalWeight + colWeight bestStitchCol
+
+      // Add remaining matches, as many as possible.
+      for i = 1 to bestStitchColumns.Length - 1 do
+        let cLeft, _depAvg, depMax = bestStitchColumns.[i]
+
+        if depMax >= mergeThresh then
+          let weight = colWeight cLeft
+
+          if totalWeight + weight <= maxWeight then
+            stitchColumns.Add(cLeft) |> ignore
+            totalWeight <- totalWeight + weight
+
+      availableColumns.UnionWith(derivedColumns)
+      derivedClusters.Add((StitchOwner.Shared, Seq.toArray stitchColumns, derivedColumns))
+
+    {
+      InitialCluster = Seq.toArray clusters.[0].Columns
+      DerivedClusters = Seq.toList derivedClusters
+    }
+
+  let private clusteringQuality (context: ClusteringContext) (clusters: Clusters) =
     let dependencyMatrix = context.DependencyMatrix
 
-    let bestPair x y =
-      max dependencyMatrix.[x, y] dependencyMatrix.[y, x]
+    let unsatisfiedDependencies = Array.copy context.TotalDependencePerColumn
 
-    let averagePair x y =
-      (dependencyMatrix.[x, y] + dependencyMatrix.[y, x]) / 2.0
-
-    let maxClusterSize = context.BucketizationParams.ClusteringMaxClusterSize
-    let mergeThreshold = context.BucketizationParams.ClusteringMergeThreshold
-    let patchThreshold = context.BucketizationParams.ClusteringPatchThreshold
-
-    let patches = MutableList<MutablePatch>()
-    let roots = MutableList<ColumnId>() // Starting column of each patch.
-    let patchesByColumn = Array.create numColumns -1
-    let clustersByStitchColumn = Array.init numColumns (fun _ -> MutableList<MutableCluster>())
-
-    let findBestAvailableCluster newCol =
-      let mutable bestPatchIndex = -1
-      let mutable bestScore = 0.0
-      let mutable bestCluster = null
-
-      for patchIndex = 0 to patches.Count - 1 do
-        for cluster in patches.[patchIndex] do
-          if
-            cluster.Count < maxClusterSize
-            && cluster |> Seq.forall (fun col -> bestPair col newCol >= mergeThreshold)
-            && (cluster.Count = 1 || bestPair cluster.[0] cluster.[1] >= mergeThreshold)
-          then
-            let mutable avg = 0.0
-
-            for col in cluster do
-              avg <- avg + averagePair col newCol
-
-            avg <- avg / float cluster.Count
-
-            // Find where the column can be derived best.
-            if avg > bestScore then
-              bestPatchIndex <- patchIndex
-              bestScore <- avg
-              bestCluster <- cluster
-
-      if bestPatchIndex >= 0 then Some(bestPatchIndex, bestCluster) else None
-
-    let findBestJoinColumn i =
-      let colA = permutation.[i]
-
-      if mainColumn.IsSome then
-        if mainColumn.Value = colA then None else mainColumn
-      else
-        let mutable bestScore = -infinity
-        let mutable bestColB = -1
+    let visitPairs (columns: ColumnId array) =
+      for i = 1 to columns.Length - 1 do
+        let colA = columns.[i]
 
         for j = 0 to i - 1 do
-          let colB = permutation.[j]
-          let scoreAB = dependencyMatrix.[colA, colB]
+          let colB = columns.[j]
+          let dependence = dependencyMatrix.[colA, colB] // Assumes a symmetric matrix.
+          unsatisfiedDependencies.[colA] <- unsatisfiedDependencies.[colA] - dependence
+          unsatisfiedDependencies.[colB] <- unsatisfiedDependencies.[colB] - dependence
 
-          if scoreAB > bestScore then
-            bestScore <- scoreAB
-            bestColB <- colB
+    visitPairs clusters.InitialCluster
 
-        if bestScore >= patchThreshold then Some bestColB else None
+    for _, stitchColumns, derivedColumns in clusters.DerivedClusters do
+      visitPairs (Array.append stitchColumns derivedColumns)
 
-    for i = 0 to numColumns - 1 do
-      let col = permutation.[i]
+    Array.sum unsatisfiedDependencies / (2.0 * float unsatisfiedDependencies.Length)
 
-      match findBestAvailableCluster col with
-      | Some(patchIndex, cluster) ->
-        // Found some available cluster, merge there.
-        cluster.Add(col)
-        patchesByColumn.[col] <- patchIndex
-      | None ->
-        match findBestJoinColumn i with
-        | Some bestCol ->
-          // Add a new cluster by stitching with best column.
-          let patchIndex = patchesByColumn.[bestCol]
-          let patch = patches.[patchIndex]
-          let cluster = MutableCluster()
-          cluster.Add(bestCol)
-          cluster.Add(col)
-          patch.Add(cluster)
-          patchesByColumn.[col] <- patchIndex
-          clustersByStitchColumn.[bestCol].Add(cluster)
-        | None ->
-          // No best column is found, start a new patch.
-          roots.Add(col)
-          let patch = MutablePatch()
-          let cluster = MutableCluster()
-          cluster.Add(col)
-          patches.Add(patch)
-          patch.Add(cluster)
-          patchesByColumn.[col] <- patches.Count - 1
-          clustersByStitchColumn.[col].Add(cluster)
 
-    let rec buildCluster rootCol : Cluster option =
-      let childClusters =
-        if clustersByStitchColumn.[rootCol].Count > 1 then
-          // There might be a patch without merges.
-          // Since we have multiple clusters, we drop the single column one.
-          // TODO: Reconsider when trying the idea of "patch-stitches".
-          clustersByStitchColumn.[rootCol]
-          |> Seq.filter (fun cluster -> cluster.Count > 1)
-          |> Seq.toList
-        else
-          clustersByStitchColumn.[rootCol] |> Seq.toList
+  let clusteringContext (mainColumn: ColumnId option) (forest: Forest) =
+    let measures = Dependence.measureAll forest
+    let dependencyMatrix = measures.DependencyMatrix
 
-      childClusters
-      |> List.map (fun childCluster ->
-        childCluster
-        |> Seq.filter (fun col -> col <> rootCol)
-        |> Seq.fold
-          (fun currentCluster col ->
-            match buildCluster col with
-            | Some(CompositeCluster([ col' ], otherClusters)) when col = col' ->
-              CompositeCluster([ col ], currentCluster :: otherClusters)
-            | Some otherCluster -> CompositeCluster([ col ], [ currentCluster; otherCluster ])
-            | None -> currentCluster
-          )
-          (BaseCluster(Seq.toList childCluster))
-      )
-      |> function
-        | [] -> None
-        | [ cluster ] -> Some cluster
-        | clusters -> Some(CompositeCluster([ rootCol ], clusters))
+    if mainColumn.IsSome then
+      let mainColumn = mainColumn.Value
 
-    roots |> Seq.choose buildCluster |> Seq.toList
+      for i = 0 to forest.Dimensions - 1 do
+        dependencyMatrix.[i, mainColumn] <- dependencyMatrix.[i, mainColumn] + 0.5
+        dependencyMatrix.[mainColumn, i] <- dependencyMatrix.[mainColumn, i] + 0.5
 
-  let private clusteringQuality (context: ClusteringContext) (patches: PatchList) =
-    let dependencyMatrix = context.DependencyMatrix
-    let scoreMatrix = Array2D.copy dependencyMatrix
-    let numColumns = context.NumColumns
+    let totalPerColumn = Array.zeroCreate<float> forest.Dimensions
 
-    let markVisited a b =
-      scoreMatrix.[a, b] <- 0.0
-      scoreMatrix.[b, a] <- 0.0
+    for i = 0 to forest.Dimensions - 1 do
+      for j = 0 to forest.Dimensions - 1 do
+        if i <> j then
+          totalPerColumn.[i] <- totalPerColumn.[i] + dependencyMatrix.[i, j]
 
-    let rec walk (cluster: Cluster) =
-      match cluster with
-      | BaseCluster baseCluster ->
-        let arr = List.toArray baseCluster
-
-        for i = 0 to arr.Length - 1 do
-          for j = 0 to i - 1 do
-            markVisited arr.[i] arr.[j]
-      | CompositeCluster(_, clusters) -> clusters |> List.iter walk
-
-    patches |> List.iter walk
-
-    let mutable sum = 0.0
-
-    // Score is total unsatisfied dependence between columns.
-    for i = 0 to numColumns - 1 do
-      for j = i + 1 to numColumns - 1 do
-        sum <- sum + (max scoreMatrix.[i, j] scoreMatrix.[j, i])
-
-    // Take the average score per column.
-    sum / float numColumns
-
-  let clusteringContext mainColumn (forest: Forest) =
     {
-      DependencyMatrix = Dependence.measureAll forest
-      MainColumn = mainColumn
+      DependencyMatrix = dependencyMatrix
+      ComplexityMatrix = measures.ComplexityMatrix
+      Entropy1Dim = measures.Entropy1Dim
+      TotalDependencePerColumn = totalPerColumn
       AnonymizationParams = forest.AnonymizationContext.AnonymizationParams
       BucketizationParams = forest.BucketizationParams
       Random = forest.Random
     }
 
-  let private moveToFront arr elem =
-    match Array.partition (fun x -> x = elem) arr with
-    | [| elem |], rest -> Array.append [| elem |] rest
-    | _, _ -> arr
-
   let private doSolve (context: ClusteringContext) =
     let numCols = context.NumColumns
     let random = context.Random
-    let minMutationIndex = if context.MainColumn.IsSome then 1 else 0
-
-    let mutate (solution: int array) =
-      let copy = Array.copy solution
-      let i = random.Next(minMutationIndex, numCols)
-      let mutable j = random.Next(minMutationIndex, numCols)
-
-      while i = j do
-        j <- random.Next(minMutationIndex, numCols)
-
-      copy.[i] <- solution.[j]
-      copy.[j] <- solution.[i]
-      copy
-
-    let evaluate (solution: int array) =
-      let patches = buildClusters context solution
-      clusteringQuality context patches
 
     // Constants
-    let initialSolution =
-      if context.MainColumn.IsSome then
-        moveToFront [| 0 .. numCols - 1 |] context.MainColumn.Value
-      else
-        [| 0 .. numCols - 1 |]
+    let initialSolution = [| 0 .. numCols - 1 |]
 
     let initialTemperature = 5.0
     let minTemperature = 3.5E-3
@@ -629,6 +881,22 @@ module Solver =
 
     let nextTemperature currentTemp =
       currentTemp / (1.0 + alpha * currentTemp)
+
+    let mutate (solution: int array) =
+      let copy = Array.copy solution
+      let i = random.Next(numCols)
+      let mutable j = random.Next(numCols)
+
+      while i = j do
+        j <- random.Next(numCols)
+
+      copy.[i] <- solution.[j]
+      copy.[j] <- solution.[i]
+      copy
+
+    let evaluate (solution: int array) =
+      let clusters = buildClusters context solution
+      clusteringQuality context clusters
 
     // Solver state
     let mutable currentSolution = initialSolution
@@ -656,14 +924,12 @@ module Solver =
     buildClusters context bestSolution
 
   let solve (context: ClusteringContext) =
-    assert (context.BucketizationParams.ClusteringMaxClusterSize > 1)
-
+    assert (context.BucketizationParams.ClusteringMaxClusterWeight > 1)
     let numCols = context.NumColumns
-    let searchCols = numCols - (if context.MainColumn.IsSome then 1 else 0)
 
-    if searchCols >= 2 then
+    if numCols >= 3 then
       // TODO: Do an exact search up to a number of columns.
       doSolve context
     else
-      // Build a base cluster that includes everything.
-      [ BaseCluster [ 0 .. numCols - 1 ] ]
+      // Build a cluster that includes everything.
+      { InitialCluster = [| 0 .. numCols - 1 |]; DerivedClusters = [] }
