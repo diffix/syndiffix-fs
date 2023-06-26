@@ -61,13 +61,13 @@ assumes each row represents a distinct protected entity.
 
 `--precision-limit-depth-threshold <int>` - Tree depth threshold below which the `row-fraction` check is not applied.
 
-## Usage hints
+## Usage guide
 
 The fewer columns that are included with the `--columns` parameter, the more accurate the resulting synthetic data. If for instance one is only interested in column pairs, then it is better to generate a different synthetic dataset for each pair than to take the pairs from one complete synthetic dataset.
 
-If the synthetic dataset is for the purpose of building a private ML model, and the target column of the model is known, then setting `--clustering-maincolumn` to the target column will produce synthetic data that leads to a better ML model. 
+If the synthetic dataset is for the purpose of building an ML model, and the target column of the model is known, then setting `--clustering-maincolumn` to the target column will produce synthetic data that leads to a better ML model. 
 
-If there is more than one row per protected entity (i.e. per individual), then the `--aidcolumns` columns must be set.
+If there is more than one row per protected entity (i.e. per individual), then the `--aidcolumns` parameter must be set.
 
 All other parameters should normally be kept at their defaults.
 
