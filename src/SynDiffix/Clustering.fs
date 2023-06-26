@@ -490,9 +490,10 @@ module Clustering =
 
       context.ResultRows.Add(mergeRow allColumns pickSharedLeft leftRows.[i] rightRows.[i])
 
-  let private acceptableDistribution (left: int) (right: int) =
-    let THRESH_REL = 0.7
+  [<Literal>]
+  let private THRESH_REL = 0.7
 
+  let private acceptableDistribution (left: int) (right: int) =
     let min = min left right
     let max = max left right
 
@@ -714,13 +715,18 @@ module Solver =
 
   type private MutableCluster = { Columns: HashSet<ColumnId>; mutable TotalEntropy: float }
 
+  [<Literal>]
+  let private DERIVED_COLS_MIN = 1
+
+  [<Literal>]
+  let private DERIVED_COLS_RESERVED = 0.5
+
+  [<Literal>]
+  let private DERIVED_COLS_RATIO = 0.7
+
   let private buildClusters (context: ClusteringContext) (permutation: int array) : Clusters =
     let mergeThresh = context.BucketizationParams.ClusteringMergeThreshold
     let maxWeight = context.BucketizationParams.ClusteringMaxClusterWeight
-
-    let DERIVED_COLS_MIN = 1
-    let DERIVED_COLS_RESERVED = 0.5
-    let DERIVED_COLS_RATIO = 0.7
 
     let dependencyMatrix = context.DependencyMatrix
     let entropy1Dim = context.Entropy1Dim
