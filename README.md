@@ -15,13 +15,13 @@ dotnet run file.csv --columns column0:r column1:i ...
 
 `<file.csv>` - Specifies the input CSV file.
 
-`--columns [<string>...]` - The selection of columns to synthesize and their types in the format `name:t`, where `t` is one of the following:
+`--columns [<string>...]` - The selection of columns to synthesize and their types in the format `name:x`, where `x` is one of the following:
 `b`-boolean, `i`-integer, `r`-real, `t`-timestamp, `s`-string.
 
 ### Optional arguments
 
 `--aidcolumns [<string>...]` - List of entity ID columns used for anonymization. If not specified,
-assumes each row represents a different entity.
+assumes each row represents a distinct protected entity.
 
 `--verbose` - Display extra output for debugging purposes.
 
@@ -45,7 +45,7 @@ assumes each row represents a different entity.
 
 `--no-clustering` - Disables column clustering.
 
-`--clustering-maincolumn` - Column to be prioritized in clusters.
+`--clustering-maincolumn` - Column to be prioritized in clusters (i.e. the target column in an ML model).
 
 `--clustering-samplesize <int>` - Table sample size when measuring dependence.
 
@@ -60,6 +60,16 @@ assumes each row represents a different entity.
 `--precision-limit-row-fraction <int>` - Tree nodes are allowed to split if `node_num_rows >= table_num_rows/row_fraction`.
 
 `--precision-limit-depth-threshold <int>` - Tree depth threshold below which the `row-fraction` check is not applied.
+
+## Usage hints
+
+The fewer columns that are included with the `--columns` parameter, the more accurate the resulting synthetic data. If for instance one is only interested in column pairs, then it is better to generate a different synthetic dataset for each pair than to take the pairs from one complete synthetic dataset.
+
+If the synthetic dataset is for the purpose of building a private ML model, and the target column of the model is known, then setting `--clustering-maincolumn` to the target column will produce synthetic data that leads to a better ML model. 
+
+If there is more than one row per protected entity (i.e. per individual), then the `--aidcolumns` columns must be set.
+
+All other parameters should normally be kept at their defaults.
 
 ## Step-by-step description of the algorithm
 
