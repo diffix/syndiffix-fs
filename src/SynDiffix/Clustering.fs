@@ -68,14 +68,7 @@ module Dependence =
       NodeY: OneDimNode
     }
 
-  type Result =
-    {
-      Columns: int * int
-      Dependence: float
-      Complexity: int64
-      Scores: Score list
-      MeasureTime: TimeSpan
-    }
+  type Result = { Columns: int * int; Dependence: float; MeasureTime: TimeSpan }
 
   let private count (node: AnyDimNode) = node |> Tree.noisyRowCount |> float
 
@@ -232,13 +225,10 @@ module Dependence =
     {
       Columns = colX, colY
       Dependence = if totalCount > 0. then totalWeightedScore / totalCount else 0.
-      Complexity = complexity
-      Scores = Seq.toList scores
       MeasureTime = stopwatch.Elapsed
     }
 
-  type DependenceMeasurements =
-    { DependencyMatrix: float[,]; ComplexityMatrix: int64[,]; Entropy1Dim: float[] }
+  type DependenceMeasurements = { DependencyMatrix: float[,]; Entropy1Dim: float[] }
 
   let private measureEntropy (root: AnyDimNode) =
     let numRows = count root
@@ -257,7 +247,6 @@ module Dependence =
   let measureAll (forest: Forest) : DependenceMeasurements =
     let numColumns = forest.Dimensions
     let dependencyMatrix = Array2D.create<float> numColumns numColumns 1.0
-    let complexityMatrix = Array2D.create<int64> numColumns numColumns 0
     let entropy1Dim = Array.init numColumns (fun i -> forest.GetTree([| i |]) |> measureEntropy)
 
     generateCombinations 2 numColumns
@@ -268,15 +257,9 @@ module Dependence =
       let dependence = score.Dependence
       dependencyMatrix.[x, y] <- dependence
       dependencyMatrix.[y, x] <- dependence
-      complexityMatrix.[x, y] <- score.Complexity
-      complexityMatrix.[y, x] <- score.Complexity
     )
 
-    {
-      DependencyMatrix = dependencyMatrix
-      ComplexityMatrix = complexityMatrix
-      Entropy1Dim = entropy1Dim
-    }
+    { DependencyMatrix = dependencyMatrix; Entropy1Dim = entropy1Dim }
 
 // ----------------------------------------------------------------
 
@@ -707,7 +690,6 @@ module Solver =
   type ClusteringContext =
     {
       DependencyMatrix: float[,]
-      ComplexityMatrix: int64[,]
       Entropy1Dim: float[]
       TotalDependencePerColumn: float[]
       AnonymizationParams: AnonymizationParams
@@ -866,7 +848,6 @@ module Solver =
 
     {
       DependencyMatrix = dependencyMatrix
-      ComplexityMatrix = measures.ComplexityMatrix
       Entropy1Dim = measures.Entropy1Dim
       TotalDependencePerColumn = totalPerColumn
       AnonymizationParams = forest.AnonymizationContext.AnonymizationParams
