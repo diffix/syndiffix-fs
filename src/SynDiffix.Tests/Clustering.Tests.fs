@@ -8,9 +8,9 @@ open SynDiffix.Microdata
 open SynDiffix.Clustering
 
 module DependenceTests =
-  [<Fact>]
-  let ``Dependence measurement`` () =
-    let path = getTestFilePath "dependency.csv"
+
+  let measureDependence file =
+    let path = getTestFilePath file
     let rows, columns = Csv.readWithTypes path Csv.rowNumberAid
     let rows = rows |> Seq.toArray
 
@@ -30,19 +30,9 @@ module DependenceTests =
 
     let result = forest |> Dependence.measureDependence 0 1
     result.Columns |> should equal (0, 1)
+    result.Dependence
 
-    // Data looks like this:
-    // | * |   | * |   |
-    // |   | * |   | * |
-    // Dimension X has    1->2->4 nodes.
-    // Dimension Y has    1->2    nodes.
-    // Combination XY has 1->4    nodes.
-
-    // Cartesian product of dimensions (X,Y) for each depth gives:
-    // Depth 0: 1 x 1 = 1, has 1 matching XY node.
-    // Depth 1: 2 x 2 = 4, has 4 matching XY nodes.
-    // Depth 2: 4 x 2 = 8, dimension Y inherits singularity. No matching XY nodes.
-    // Total evaluations: 13, 5 XY combinations.
-
-    // Data fills only 50% of the boxes.
-    result.Dependence |> should equal 0.5
+  [<Fact>]
+  let ``Dependence measurements`` () =
+    for file in [ "dependency_tau.csv"; "dependency_chi2.csv"; "dependency_anova.csv" ] do
+      file |> measureDependence |> should be (greaterThan 0.8)

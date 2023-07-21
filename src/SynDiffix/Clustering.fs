@@ -7,6 +7,9 @@ open FsToolkit.ErrorHandling
 open SynDiffix.Combination
 open SynDiffix.Forest
 
+open FSharp.Stats.Correlation
+open FSharp.Stats.Testing
+
 // ----------------------------------------------------------------
 
 module Sampling =
@@ -72,161 +75,115 @@ module Dependence =
 
   let private count (node: AnyDimNode) = node |> Tree.noisyRowCount |> float
 
-  let private getChild index (node: AnyDimNode) =
-    match node with
-    | Tree.Branch branch -> branch.Children |> Map.tryFind index
-    | Tree.Leaf _ -> None
+  let private getColumnData (col: int) (forest: Forest) =
+    forest.MappedRows |> Array.map (fun row -> Array.item col row.Values)
 
-  let private findChild predicate (node: AnyDimNode) =
-    match node with
-    | Tree.Branch branch ->
-      branch.Children
-      |> Seq.filter predicate
-      |> Seq.toList
-      |> function
-        | [ child ] -> Some child.Value
-        | [] -> None
-        | _ -> failwith "Expected to match a single child node."
-    | Tree.Leaf _ -> None
+  let private isCategoryColumn (col: int) (forest: Forest) =
+    match forest.DataConvertors[col].ColumnType with
+    | BooleanType -> true
+    | TimestampType
+    | RealType -> false
+    | StringType
+    | IntegerType ->
+      let cardinality = forest |> getColumnData col |> Array.distinct |> Array.length
+      cardinality < 32
+    | _ -> failwith "Invalid column type!"
 
-  let inline private getBit index (value: int) = (value >>> index) &&& 1
+  let private measureTau (colX: int) (colY: int) (forest: Forest) =
+    let stopwatch = Diagnostics.Stopwatch.StartNew()
+    let colXData = getColumnData colX forest
+    let colYData = getColumnData colY forest
+    let tau = Seq.kendall colXData colYData |> abs
 
-  let private isSingularity (node: OneDimNode) =
-    (Tree.nodeData node).ActualRanges.[0].IsSingularity()
+    { Columns = colX, colY; Dependence = tau; MeasureTime = stopwatch.Elapsed }
 
-  let private singularityValue (node: OneDimNode) =
-    (Tree.nodeData node).ActualRanges.[0].Min
+  let private measureAnova (colCateg: int) (colQuant: int) (forest: Forest) =
+    let stopwatch = Diagnostics.Stopwatch.StartNew()
 
-  let private snappedRange index (node: OneDimNode) =
-    (Tree.nodeData node).SnappedRanges.[index]
+    let anova =
+      match
+        forest.MappedRows
+        |> Seq.map (fun row -> row.Values)
+        |> Seq.groupBy (Array.item colCateg)
+        |> Seq.map (fun (_, rows) -> rows |> Seq.map (Array.item colQuant))
+        |> Seq.toList
+      with
+      | []
+      | [ _ ] -> 0.0
+      | groups ->
+        let anovaResult = Anova.oneWayAnova groups
+        1.0 - anovaResult.Factor.Significance
+
+    {
+      Columns = colCateg, colQuant
+      Dependence = anova
+      MeasureTime = stopwatch.Elapsed
+    }
+
+  let private flatten2DArray (arr: float[,]) =
+    [|
+      for i = 1 to Array2D.length1 arr do
+        for j = 1 to Array2D.length2 arr do
+          yield arr[i - 1, j - 1]
+    |]
+
+  let private computeFrequencies (rows: float array array) =
+    let col0Values = rows |> Array.map (Array.item 0) |> Array.distinct
+    let col1Values = rows |> Array.map (Array.item 1) |> Array.distinct
+
+    let observedTable = Array2D.create col0Values.Length col1Values.Length 0.0
+
+    let rowSums = Array.create col0Values.Length 0.0
+    let colSums = Array.create col1Values.Length 0.0
+    let totalSum = float rows.Length
+
+    rows
+    |> Array.iter (fun row ->
+      let index0 = Array.findIndex ((=) row.[0]) col0Values
+      let index1 = Array.findIndex ((=) row.[1]) col1Values
+      observedTable.[index0, index1] <- observedTable.[index0, index1] + 1.0
+      rowSums.[index0] <- rowSums.[index0] + 1.0
+      colSums.[index1] <- colSums.[index1] + 1.0
+    )
+
+    let expectedTable =
+      Array2D.init
+        col0Values.Length
+        col1Values.Length
+        (fun index0 index1 -> rowSums.[index0] * colSums.[index1] / totalSum)
+
+    let degreesOfFreedom = (col0Values.Length - 1) * (col1Values.Length - 1) // (rows - 1) * (columns - 1)
+
+    degreesOfFreedom, flatten2DArray expectedTable, flatten2DArray observedTable
+
+  let private measureChi2 (colX: int) (colY: int) (forest: Forest) =
+    let stopwatch = Diagnostics.Stopwatch.StartNew()
+
+    let chi2 =
+      match
+        forest.MappedRows
+        |> Array.map (fun row -> [| row.Values.[colX]; row.Values.[colY] |])
+        |> computeFrequencies
+      with
+      | 0, _, _ -> 0.0
+      | degreesOfFreedom, expected, observed ->
+        let chi2Result = ChiSquareTest.compute degreesOfFreedom expected observed
+        1.0 - chi2Result.PValueRight
+
+    { Columns = colX, colY; Dependence = chi2; MeasureTime = stopwatch.Elapsed }
 
   let measureDependence (colX: int) (colY: int) (forest: Forest) : Result =
     // Ensure colX < colY.
     if colX >= colY then
       failwith "Invalid input."
 
-    let numRows = float forest.Rows.Length
-    let rangeThresh = forest.BucketizationParams.RangeLowThreshold
+    let isColXCategory = isCategoryColumn colX forest
+    let isColYCategory = isCategoryColumn colY forest
 
-    let mustPassRangeThresh (x: float) =
-      if x < rangeThresh then None else Some x
-
-    // Walk state
-    let scores = MutableList<Score>()
-    let mutable complexity = 0L
-
-    let rec walk (nodeXY: TwoDimNode option) (nodeX: OneDimNode) (nodeY: OneDimNode) =
-      option {
-        // Stop walk if either node has `count < range_thresh`.
-        let! countX = nodeX |> count |> mustPassRangeThresh
-        let! countY = nodeY |> count |> mustPassRangeThresh
-
-        // Compute and store score.
-        let actual2dimCount =
-          match nodeXY with
-          | Some nodeXY ->
-            complexity <- complexity + 1L
-            count nodeXY
-          | None -> 0.
-
-        let expected2dimCount = (countX * countY) / numRows
-
-        let score =
-          (abs (expected2dimCount - actual2dimCount))
-          / (max expected2dimCount actual2dimCount)
-
-        scores.Add(
-          {
-            Score = score
-            Count = expected2dimCount
-            NodeXY = nodeXY
-            NodeX = nodeX
-            NodeY = nodeY
-          }
-        )
-
-        // Walk children.
-        // Dim 0 (X) is at bit 1.
-        // Dim 1 (Y) is at bit 0.
-        if isSingularity nodeX && isSingularity nodeY then
-          // Stop walk if both 1-dims are singularities.
-          ()
-        elif isSingularity nodeX then
-          let xSingularity = singularityValue nodeX
-
-          for idChildY in 0..1 do
-            nodeY
-            |> getChild idChildY
-            |> Option.iter (fun childY ->
-              // Find child that matches on dim Y. It can be on either side of dim X.
-              let childXY =
-                nodeXY
-                |> Option.bind (
-                  findChild (fun pair ->
-                    (pair.Key |> getBit 0) = idChildY
-                    && (snappedRange 0 pair.Value).ContainsValue(xSingularity)
-                  )
-                )
-
-              walk childXY nodeX childY
-            )
-        elif isSingularity nodeY then
-          let ySingularity = singularityValue nodeY
-
-          for idChildX in 0..1 do
-            nodeX
-            |> getChild idChildX
-            |> Option.iter (fun childX ->
-              // Find child that matches on dim X. It can be on either side of dim Y.
-              let childXY =
-                nodeXY
-                |> Option.bind (
-                  findChild (fun pair ->
-                    (pair.Key |> getBit 1) = idChildX
-                    && (snappedRange 1 pair.Value).ContainsValue(ySingularity)
-                  )
-                )
-
-              walk childXY childX nodeY
-            )
-        else
-          for idChildXY in 0..3 do
-            let idChildX = idChildXY |> getBit 1
-            let idChildY = idChildXY |> getBit 0
-
-            option {
-              let! childX = nodeX |> getChild idChildX
-              let! childY = nodeY |> getChild idChildY
-              let childXY = nodeXY |> Option.bind (getChild idChildXY)
-              walk childXY childX childY
-            }
-            |> ignore
-      }
-      |> ignore
-
-    let rootXY = forest.GetTree([| colX; colY |])
-    let rootX = forest.GetTree([| colX |])
-    let rootY = forest.GetTree([| colY |])
-
-    let stopwatch = Diagnostics.Stopwatch.StartNew()
-
-    walk (Some rootXY) rootX rootY
-
-    let totalWeightedScore, totalCount =
-      if scores.Count > 1 then
-        scores
-        |> Seq.tail // Skip root measurement.
-        |> Seq.fold
-          (fun (accScore, accCount) score -> (accScore + score.Score * score.Count, accCount + score.Count))
-          (0., 0.)
-      else
-        0., 0.
-
-    {
-      Columns = colX, colY
-      Dependence = if totalCount > 0. then totalWeightedScore / totalCount else 0.
-      MeasureTime = stopwatch.Elapsed
-    }
+    if isColXCategory && isColYCategory then measureChi2 colX colY forest
+    elif isColXCategory then measureAnova colX colY forest
+    elif isColYCategory then measureAnova colY colX forest
+    else measureTau colX colY forest
 
   type DependenceMeasurements = { DependencyMatrix: float[,]; Entropy1Dim: float[] }
 
@@ -838,6 +795,15 @@ module Solver =
   let clusteringContext (mainColumn: ColumnId option) (forest: Forest) =
     let measures = Dependence.measureAll forest
     let dependencyMatrix = measures.DependencyMatrix
+
+    if mainColumn.IsSome then
+      let mainColumn = mainColumn.Value
+
+      measures.Entropy1Dim.[mainColumn] <- 0.0
+
+      for i = 0 to forest.Dimensions - 1 do
+        dependencyMatrix.[i, mainColumn] <- dependencyMatrix.[i, mainColumn] + 1.0
+        dependencyMatrix.[mainColumn, i] <- dependencyMatrix.[mainColumn, i] + 1.0
 
     let totalPerColumn = Array.zeroCreate<float> forest.Dimensions
 

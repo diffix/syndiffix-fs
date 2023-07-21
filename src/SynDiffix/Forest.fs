@@ -482,6 +482,7 @@ type Forest
   member this.AnonymizationContext = anonContext
   member this.BucketizationParams = bucketizationParams
   member this.Rows = rows
+  member this.MappedRows = mappedRows
   member this.Dimensions = dimensions
   member this.NullMappings = nullMappings
   member this.SnappedRanges = snappedRanges
