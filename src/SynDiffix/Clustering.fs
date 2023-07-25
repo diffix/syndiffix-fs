@@ -814,9 +814,8 @@ module Solver =
 
       // Add remaining matches, as many as possible.
       bestStitchColumns
-      |> Array.filter (fst3 >> ((<>) bestStitchCol))
       |> Array.iter (fun (cLeft, _depAvg, depMax) ->
-        if depMax >= mergeThresh then
+        if cLeft <> bestStitchCol && depMax >= mergeThresh then
           let weight = colWeight cLeft
 
           if totalWeight + weight <= maxWeight then
