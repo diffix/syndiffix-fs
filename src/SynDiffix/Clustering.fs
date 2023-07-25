@@ -842,7 +842,6 @@ module Solver =
 
     Array.sum unsatisfiedDependencies / (2.0 * float unsatisfiedDependencies.Length)
 
-
   let clusteringContext (mainColumn: ColumnId option) (forest: Forest) =
     let measures = Dependence.measureAll forest
     let dependencyMatrix = measures.DependencyMatrix
