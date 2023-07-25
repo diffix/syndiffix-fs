@@ -704,8 +704,6 @@ module Clustering =
 open Clustering
 
 module Solver =
-  type private JoinTree = { JoinColumn: ColumnId; Children: JoinTree list }
-
   type ClusteringContext =
     {
       DependencyMatrix: float[,]
@@ -715,6 +713,7 @@ module Solver =
       AnonymizationParams: AnonymizationParams
       BucketizationParams: BucketizationParams
       Random: Random
+      MainColumn: ColumnId option
     }
     member this.NumColumns = this.DependencyMatrix.GetLength(0)
 
@@ -736,9 +735,21 @@ module Solver =
     let dependencyMatrix = context.DependencyMatrix
     let entropy1Dim = context.Entropy1Dim
 
-    let clusters = MutableList<MutableCluster>()
-
     let colWeight col = 1.0 + sqrt (max entropy1Dim.[col] 1.0)
+
+    let initialClusters, permutation =
+      match context.MainColumn with
+      | Some mainColumn ->
+        [
+          {
+            Columns = HashSet<ColumnId>([ mainColumn ])
+            TotalEntropy = colWeight mainColumn
+          }
+        ],
+        Array.filter ((<>) mainColumn) permutation
+      | None -> [], permutation
+
+    let clusters = MutableList<MutableCluster>(initialClusters)
 
     // For each column in the permutation, we find the "best" cluster that has available space.
     // We judge how suitable a cluster is by average dependence score.
@@ -797,22 +808,20 @@ module Solver =
         )
         |> Seq.toArray
 
-      // Always pick best match.
-      do
-        let bestStitchCol = fst3 bestStitchColumns.[0]
-        stitchColumns.Add(bestStitchCol) |> ignore
-        totalWeight <- totalWeight + colWeight bestStitchCol
+      let bestStitchCol = Option.defaultValue (fst3 bestStitchColumns.[0]) context.MainColumn
+      stitchColumns.Add(bestStitchCol) |> ignore
+      totalWeight <- totalWeight + colWeight bestStitchCol
 
       // Add remaining matches, as many as possible.
-      for i = 1 to bestStitchColumns.Length - 1 do
-        let cLeft, _depAvg, depMax = bestStitchColumns.[i]
-
-        if depMax >= mergeThresh then
+      bestStitchColumns
+      |> Array.iter (fun (cLeft, _depAvg, depMax) ->
+        if cLeft <> bestStitchCol && depMax >= mergeThresh then
           let weight = colWeight cLeft
 
           if totalWeight + weight <= maxWeight then
             stitchColumns.Add(cLeft) |> ignore
             totalWeight <- totalWeight + weight
+      )
 
       availableColumns.UnionWith(derivedColumns)
       derivedClusters.Add((StitchOwner.Shared, Seq.toArray stitchColumns, derivedColumns))
@@ -844,17 +853,9 @@ module Solver =
 
     Array.sum unsatisfiedDependencies / (2.0 * float unsatisfiedDependencies.Length)
 
-
   let clusteringContext (mainColumn: ColumnId option) (forest: Forest) =
     let measures = Dependence.measureAll forest
     let dependencyMatrix = measures.DependencyMatrix
-
-    if mainColumn.IsSome then
-      let mainColumn = mainColumn.Value
-
-      for i = 0 to forest.Dimensions - 1 do
-        dependencyMatrix.[i, mainColumn] <- dependencyMatrix.[i, mainColumn] + 0.5
-        dependencyMatrix.[mainColumn, i] <- dependencyMatrix.[mainColumn, i] + 0.5
 
     let totalPerColumn = Array.zeroCreate<float> forest.Dimensions
 
@@ -871,6 +872,7 @@ module Solver =
       AnonymizationParams = forest.AnonymizationContext.AnonymizationParams
       BucketizationParams = forest.BucketizationParams
       Random = forest.Random
+      MainColumn = mainColumn
     }
 
   let private doSolve (context: ClusteringContext) =
