@@ -15,6 +15,7 @@ type private Arguments =
   | [<Unique; AltCommandLine("-noise_sd")>] Layer_Noise_SD of float
   | No_Clustering
   | [<Unique>] Clustering_MainColumn of string
+  | [<Unique>] Clustering_MlFeatures of string list
   | [<Unique>] Clustering_SampleSize of int
   | [<Unique>] Clustering_MaxWeight of float
   | [<Unique>] Clustering_Thresh_Merge of float
@@ -42,6 +43,7 @@ type private Arguments =
       | Layer_Noise_SD _ -> "Count SD for each noise layer."
       | No_Clustering -> "Disables column clustering."
       | Clustering_MainColumn _ -> "Column to be prioritized in clusters."
+      | Clustering_MlFeatures _ -> "Best ML features of main column."
       | Clustering_SampleSize _ -> "Table sample size when measuring dependence."
       | Clustering_MaxWeight _ -> "Maximum cluster size, in weight units."
       | Clustering_Thresh_Merge _ -> "Dependence threshold for combining columns in a cluster."
@@ -59,6 +61,7 @@ type ParsedArguments =
     AnonymizationParams: AnonymizationParams
     BucketizationParams: BucketizationParams
     MainColumn: int option
+    MlFeatures: int list option
     Verbose: bool
     Debug: bool
   }
@@ -153,6 +156,21 @@ let private setPrecisionLimit (parsedArguments: ParseResults<Arguments>) bucketi
         |> Option.defaultValue bucketizationParams.PrecisionLimitRowFraction
   }
 
+let private getMlArguments (csvColumns: Column list) (parsedArguments: ParseResults<Arguments>) =
+  let resolveColumn colName =
+    csvColumns |> List.findIndex (fun c -> c.Name = colName)
+
+  let mainColumn = parsedArguments.TryGetResult Clustering_MainColumn |> Option.map resolveColumn
+
+  let mlFeatures =
+    parsedArguments.TryGetResult Clustering_MlFeatures
+    |> Option.map (List.map resolveColumn)
+
+  if mlFeatures.IsSome && mainColumn.IsNone then
+    failwith "ML features works with a main column only."
+
+  mainColumn, mlFeatures
+
 let parseArguments argv =
   let parser = ArgumentParser.Create<Arguments>()
 
@@ -184,9 +202,7 @@ let parseArguments argv =
     |> setClusteringParams parsedArguments
     |> setPrecisionLimit parsedArguments
 
-  let mainColumn =
-    parsedArguments.TryGetResult Clustering_MainColumn
-    |> Option.map (fun colName -> csvColumns |> List.findIndex (fun c -> c.Name = colName))
+  let mainColumn, mlFeatures = getMlArguments csvColumns parsedArguments
 
   {
     CsvPath = csvPath
@@ -195,6 +211,7 @@ let parseArguments argv =
     AnonymizationParams = anonParams
     BucketizationParams = bucketizationParams
     MainColumn = mainColumn
+    MlFeatures = mlFeatures
     Verbose = verbose
     Debug = debug
   }
