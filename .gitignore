@@ -5,3 +5,5 @@ obj/
 *.tmp.fs
 
 .idea
+.venv
+__pycache__
