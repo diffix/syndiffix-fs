@@ -704,8 +704,6 @@ module Clustering =
 open Clustering
 
 module Solver =
-  type private JoinTree = { JoinColumn: ColumnId; Children: JoinTree list }
-
   type ClusteringContext =
     {
       DependencyMatrix: float[,]
