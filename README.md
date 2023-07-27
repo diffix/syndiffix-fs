@@ -23,7 +23,7 @@ dotnet run file.csv --columns column0:r column1:i ...
 The python wrapper `syndiffix.py` uses [scikit-learn](https://scikit-learn.org/) to find the most relevant ML features for a target column.
 
 ```
-python syndiffix.py <input-path> <output-path> --ml_target=<ml-target-column>
+python syndiffix.py <input-path> <output-path> --dev --ml_target=<ml-target-column>
 ```
 
 Run `syndiffix.py --help` for usage guide.
