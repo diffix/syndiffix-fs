@@ -12,6 +12,8 @@ open SynDiffix.Counter
 
 open SynDiffix.ArgumentParsing
 
+open Thoth.Json.Net
+
 type Result =
   {
     Columns: Column list
@@ -70,6 +72,33 @@ let private printScores (scores: float[,]) =
 
   eprintfn ""
 
+
+let private parseClusters clusters =
+  let derivedClustersDecoder =
+    Decode.object (fun get ->
+      let stitchColumns = get.Required.Field "StitchColumns" (Decode.array Decode.int)
+      let derivedColumns = get.Required.Field "DerivedColumns" (Decode.array Decode.int)
+
+      let stitchOwner =
+        match (get.Required.Field "StitchOwner" Decode.string).ToLower() with
+        | "left" -> StitchOwner.Left
+        | "right" -> StitchOwner.Right
+        | "shared" -> StitchOwner.Shared
+        | _ -> failwith "Invalid stitch owner type!"
+
+      (stitchOwner, stitchColumns, derivedColumns)
+    )
+
+  let clustersDecoder =
+    Decode.object (fun get ->
+      {
+        InitialCluster = get.Required.Field "InitialCluster" (Decode.array Decode.int)
+        DerivedClusters = get.Required.Field "DerivedClusters" (Decode.list derivedClustersDecoder)
+      }
+    )
+
+  clusters |> Decode.fromString clustersDecoder |> Result.value
+
 let transform treeCacheLevel (arguments: ParsedArguments) =
   let countStrategy =
     createCountStrategy arguments.AidColumns arguments.BucketizationParams.RangeLowThreshold
@@ -119,6 +148,17 @@ let transform treeCacheLevel (arguments: ParsedArguments) =
             |> List.tail
             |> List.map (fun c -> (StitchOwner.Shared, [||], [| c |]))
         }
+      elif arguments.Clusters <> "" then
+        let clusters =
+          if arguments.Clusters.StartsWith("{") then
+            arguments.Clusters
+          else
+            File.ReadAllText arguments.Clusters
+
+        if arguments.Verbose then
+          eprintfn $"Manually assigning clusters: %s{clusters}."
+
+        parseClusters clusters
       elif arguments.MainColumn.IsSome && arguments.MainFeatures.IsSome then
         Solver.solveWithFeatures arguments.MainColumn.Value arguments.MainFeatures.Value forest
       else
