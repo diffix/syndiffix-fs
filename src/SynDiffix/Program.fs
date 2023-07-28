@@ -6,8 +6,9 @@ open SynDiffix.Engine
 [<EntryPoint>]
 let main argv =
   try
-    let result = argv |> parseArguments |> transform 1
-    Csv.toString result.Columns result.SynRows |> printf "%s"
+    let parsedArgs = argv |> parseArguments
+    let result = parsedArgs |> transform 1
+    Csv.writeTo parsedArgs.OutputWriter result.Columns result.SynRows
     0
   with ex ->
     eprintfn "ERROR: %s" ex.Message

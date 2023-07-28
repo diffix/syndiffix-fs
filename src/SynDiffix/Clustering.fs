@@ -230,7 +230,7 @@ module Dependence =
 
   type DependenceMeasurements = { DependencyMatrix: float[,]; Entropy1Dim: float[] }
 
-  let private measureEntropy (root: AnyDimNode) =
+  let measureEntropy (root: AnyDimNode) =
     let numRows = count root
     let mutable entropy = 0.0
 
@@ -710,6 +710,8 @@ module Solver =
   [<Literal>]
   let private DERIVED_COLS_RATIO = 0.7
 
+  let private colWeight entropy = 1.0 + sqrt (max entropy 1.0)
+
   let private buildClusters (context: ClusteringContext) (permutation: int array) : Clusters =
     let mergeThresh = context.BucketizationParams.ClusteringMergeThreshold
     let maxWeight = context.BucketizationParams.ClusteringMaxClusterWeight
@@ -717,7 +719,7 @@ module Solver =
     let dependencyMatrix = context.DependencyMatrix
     let entropy1Dim = context.Entropy1Dim
 
-    let colWeight col = 1.0 + sqrt (max entropy1Dim.[col] 1.0)
+    let colWeight col = colWeight entropy1Dim.[col]
 
     let initialClusters, permutation =
       match context.MainColumn with
@@ -921,3 +923,45 @@ module Solver =
     else
       // Build a cluster that includes everything.
       { InitialCluster = [| 0 .. numCols - 1 |]; DerivedClusters = [] }
+
+  type private FeaturesCluster = { Columns: MutableList<ColumnId>; mutable TotalEntropy: float }
+
+  let solveWithFeatures (mainColumn: ColumnId) (mainFeatures: ColumnId list) (forest: Forest) =
+    let numColumns = forest.Dimensions
+    let entropy1Dim = Array.init numColumns (fun i -> forest.GetTree([| i |]) |> Dependence.measureEntropy)
+    let mainColumnWeight = colWeight entropy1Dim.[mainColumn]
+    let maxWeight = forest.BucketizationParams.ClusteringMaxClusterWeight
+
+    let clusters = MutableList()
+
+    let newCluster () =
+      let cluster = { Columns = MutableList<ColumnId>(); TotalEntropy = mainColumnWeight }
+      clusters.Add(cluster)
+      cluster
+
+    let mutable curr = newCluster ()
+    curr.Columns.Add(mainColumn) // Only for first cluster, in others main is a stitch column.
+
+    for feature in mainFeatures do
+      let weight = colWeight entropy1Dim.[feature]
+
+      if curr.Columns.Count > 1 && curr.TotalEntropy + weight > maxWeight then
+        curr <- newCluster ()
+
+      curr.Columns.Add(feature)
+      curr.TotalEntropy <- curr.TotalEntropy + weight
+
+    let clusters = clusters |> Seq.map (fun c -> c.Columns |> Seq.toArray) |> Seq.toList
+
+    let initialCluster = clusters.Head
+    let derivedClusters = clusters.Tail |> List.map (fun c -> StitchOwner.Shared, [| mainColumn |], c)
+
+    let patchColumns =
+      [ 0 .. forest.Dimensions - 1 ]
+      |> List.except (mainColumn :: mainFeatures)
+      |> List.map (fun c -> StitchOwner.Shared, [||], [| c |])
+
+    {
+      InitialCluster = initialCluster
+      DerivedClusters = derivedClusters @ patchColumns
+    }

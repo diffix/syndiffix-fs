@@ -95,3 +95,13 @@ let toString (columns: Columns) (rows: Value[] seq) =
   let rows = rows |> Seq.map (fun row -> row |> Array.map csvFormat |> String.join ",")
 
   (Seq.concat [ Seq.singleton header; rows ] |> String.join "\n") + "\n"
+
+let writeTo (writer: IO.TextWriter) (columns: Columns) (rows: Value[] seq) =
+  let header = columns |> List.map (fun column -> column.Name) |> String.join ","
+  writer.WriteLine(header)
+
+  rows
+  |> Seq.map (fun row -> row |> Array.map csvFormat |> String.join ",")
+  |> Seq.iter writer.WriteLine
+
+  writer.Flush()

@@ -159,6 +159,8 @@ let transform treeCacheLevel (arguments: ParsedArguments) =
           eprintfn $"Manually assigning clusters: %s{clusters}."
 
         parseClusters clusters
+      elif arguments.MainColumn.IsSome && arguments.MainFeatures.IsSome then
+        Solver.solveWithFeatures arguments.MainColumn.Value arguments.MainFeatures.Value forest
       else
         let forest' = if Sampling.shouldSample forest then Sampling.sampleForest forest else forest
 
