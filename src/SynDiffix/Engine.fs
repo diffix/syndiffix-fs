@@ -119,8 +119,8 @@ let transform treeCacheLevel (arguments: ParsedArguments) =
             |> List.tail
             |> List.map (fun c -> (StitchOwner.Shared, [||], [| c |]))
         }
-      elif arguments.MainColumn.IsSome && arguments.MlFeatures.IsSome then
-        Solver.solveMl arguments.MainColumn.Value arguments.MlFeatures.Value forest
+      elif arguments.MainColumn.IsSome && arguments.MainFeatures.IsSome then
+        Solver.solveWithFeatures arguments.MainColumn.Value arguments.MainFeatures.Value forest
       else
         let forest' = if Sampling.shouldSample forest then Sampling.sampleForest forest else forest
 

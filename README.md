@@ -20,7 +20,7 @@ dotnet run file.csv --columns column0:r column1:i ...
 
 ### Python wrapper for ML
 
-The python wrapper `syndiffix.py` uses [scikit-learn](https://scikit-learn.org/) to find the most relevant ML features for a target column.
+The Python wrapper `syndiffix.py` uses [scikit-learn](https://scikit-learn.org/) to find the most relevant ML features for a target column.
 
 ```
 python syndiffix.py <input-path> <output-path> --dev --ml_target=<ml-target-column>
@@ -59,7 +59,7 @@ assumes each row represents a distinct protected entity.
 
 `--clustering-maincolumn <string>` - Column to be prioritized in clusters for better ML accuracy.
 
-`--clustering-mlfeatures [<string>...]` - Best ML features of main column. When specified, this overrides the default clustering algorithm.
+`--clustering-mainfeatures [<string>...]` - Best features of main column. When specified, this overrides the default clustering algorithm.
 
 `--clustering-samplesize <int>` - Table sample size when measuring dependence.
 

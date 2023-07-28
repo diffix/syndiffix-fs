@@ -15,8 +15,11 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 # ----------------------------------------------------------------
 
 
-def is_classification(column):
-    return column.dtype == 'object' or column.nunique() <= 10
+CATEGORY_THRESHOLD = 10
+
+
+def is_categorical(column):
+    return column.dtype == 'object' or column.nunique() <= CATEGORY_THRESHOLD
 
 
 def get_feature_types(df):
@@ -27,7 +30,7 @@ def get_feature_types(df):
     for colname in df.columns:
         column = df[colname]
         nunique = column.nunique()
-        if nunique <= 10:
+        if nunique <= CATEGORY_THRESHOLD:
             categorical_features.append(colname)
         elif column.dtype == 'object':
             text_features.append(colname)
@@ -174,7 +177,7 @@ def select_features_ml(df, column, one_hot_X=False):
             }
         }
 
-    if is_classification(y[column]):
+    if is_categorical(y[column]):
         estimator = DecisionTreeClassifier()
     else:
         estimator = DecisionTreeRegressor()
@@ -267,8 +270,7 @@ def run_syndiffix(input_path, output_path, columns, dev=False, extra_args=[], us
 
     print('Running SynDiffix...')
 
-    type_symbols = {'text': 's', 'real': 'r', 'datetime': 't', 'int': 'i', 'boolean': 'b'}
-    columns_args = [c['name'] + ':' + type_symbols[c['type']] for c in columns]
+    columns_args = [c['name'] + ':' + c['type'] for c in columns]
 
     user_args = shlex.split(user_args)
 
@@ -289,7 +291,7 @@ def run_syndiffix(input_path, output_path, columns, dev=False, extra_args=[], us
 def load_csv(path):
     from pandas.errors import ParserError
 
-    df = pd.read_csv(path, keep_default_na=False, na_values=[''])
+    df = pd.read_csv(path, keep_default_na=False, na_values=[''], low_memory=False)
 
     # Try to infer datetime columns.
     for col in df.columns[df.dtypes == 'object']:
@@ -306,15 +308,15 @@ def columns_metadata(df):
 
     for col_name, col_type in zip(df.columns, df.dtypes):
         if pd.api.types.is_bool_dtype(col_type):
-            t = 'boolean'
+            t = 'b'
         elif pd.api.types.is_integer_dtype(col_type):
-            t = 'int'
+            t = 'i'
         elif pd.api.types.is_float_dtype(col_type) or pd.api.types.is_numeric_dtype(col_type):
-            t = 'real'
+            t = 'r'
         elif pd.api.types.is_datetime64_any_dtype(col_type):
-            t = 'datetime'
+            t = 't'
         elif pd.api.types.is_string_dtype(col_type) or pd.api.types.is_object_dtype(col_type):
-            t = 'text'
+            t = 's'
         else:
             raise Exception(f"Unknown type for column '{col_name}'.")
 
@@ -360,7 +362,7 @@ def main(
 
         extra_args = [
             '--clustering-maincolumn', ml_target,
-            '--clustering-mlfeatures', *features
+            '--clustering-mainfeatures', *features
         ]
 
         if ml_features_only:

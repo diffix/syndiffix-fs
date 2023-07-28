@@ -943,9 +943,9 @@ module Solver =
       // Build a cluster that includes everything.
       { InitialCluster = [| 0 .. numCols - 1 |]; DerivedClusters = [] }
 
-  type private MlCluster = { Columns: MutableList<ColumnId>; mutable TotalEntropy: float }
+  type private FeaturesCluster = { Columns: MutableList<ColumnId>; mutable TotalEntropy: float }
 
-  let solveMl (mainColumn: ColumnId) (mlColumns: ColumnId list) (forest: Forest) =
+  let solveWithFeatures (mainColumn: ColumnId) (mainFeatures: ColumnId list) (forest: Forest) =
     let numColumns = forest.Dimensions
     let entropy1Dim = Array.init numColumns (fun i -> forest.GetTree([| i |]) |> Dependence.measureEntropy)
     let mainColumnWeight = colWeight entropy1Dim.[mainColumn]
@@ -961,13 +961,13 @@ module Solver =
     let mutable curr = newCluster ()
     curr.Columns.Add(mainColumn) // Only for first cluster, in others main is a stitch column.
 
-    for mlColumn in mlColumns do
-      let weight = colWeight entropy1Dim.[mlColumn]
+    for feature in mainFeatures do
+      let weight = colWeight entropy1Dim.[feature]
 
       if curr.Columns.Count > 1 && curr.TotalEntropy + weight > maxWeight then
         curr <- newCluster ()
 
-      curr.Columns.Add(mlColumn)
+      curr.Columns.Add(feature)
       curr.TotalEntropy <- curr.TotalEntropy + weight
 
     let clusters = clusters |> Seq.map (fun c -> c.Columns |> Seq.toArray) |> Seq.toList
@@ -977,7 +977,7 @@ module Solver =
 
     let patchColumns =
       [ 0 .. forest.Dimensions - 1 ]
-      |> List.except (mainColumn :: mlColumns)
+      |> List.except (mainColumn :: mainFeatures)
       |> List.map (fun c -> StitchOwner.Shared, [||], [| c |])
 
     {
