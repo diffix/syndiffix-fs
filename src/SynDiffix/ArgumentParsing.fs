@@ -1,9 +1,11 @@
 module SynDiffix.ArgumentParsing
 
 open Argu
+open System
 
 type private Arguments =
   | [<MainCommand; ExactlyOnce; First>] CsvPath of string
+  | [<Unique; AltCommandLine("-o")>] Output of string
   | [<ExactlyOnce>] Columns of string list
   | [<Unique>] AidColumns of string list
   | [<Unique; AltCommandLine("-lcf")>] Lcf_Low_Threshold of int
@@ -15,6 +17,7 @@ type private Arguments =
   | [<Unique; AltCommandLine("-noise_sd")>] Layer_Noise_SD of float
   | No_Clustering
   | [<Unique>] Clustering_MainColumn of string
+  | [<Unique>] Clustering_MainFeatures of string list
   | [<Unique>] Clustering_SampleSize of int
   | [<Unique>] Clustering_MaxWeight of float
   | [<Unique>] Clustering_Thresh_Merge of float
@@ -26,7 +29,8 @@ type private Arguments =
   interface IArgParserTemplate with
     member this.Usage =
       match this with
-      | CsvPath _ -> "Path to the CSV file."
+      | CsvPath _ -> "Path to the input CSV file."
+      | Output _ -> "Path to the output CSV file."
       | Columns _ ->
         "List of columns and their types in the format `column:t`, where `t` is one of the following: "
         + "`b`-boolean, `i`-integer, `r`-real, `t`-timestamp, `s`-string."
@@ -42,8 +46,9 @@ type private Arguments =
       | Layer_Noise_SD _ -> "Count SD for each noise layer."
       | No_Clustering -> "Disables column clustering."
       | Clustering_MainColumn _ -> "Column to be prioritized in clusters."
+      | Clustering_MainFeatures _ -> "Best features of main column."
       | Clustering_SampleSize _ -> "Table sample size when measuring dependence."
-      | Clustering_MaxWeight _ -> "Maximum cluster size, in weight units."
+      | Clustering_MaxWeight _ -> "Maximum cluster weight."
       | Clustering_Thresh_Merge _ -> "Dependence threshold for combining columns in a cluster."
       | Precision_Limit_Row_Fraction _ ->
         "Tree nodes are allowed to split if `node_num_rows >= table_num_rows/row_fraction`."
@@ -54,11 +59,13 @@ type private Arguments =
 type ParsedArguments =
   {
     CsvPath: string
+    OutputWriter: IO.TextWriter
     CsvColumns: Column list
     AidColumns: string list
     AnonymizationParams: AnonymizationParams
     BucketizationParams: BucketizationParams
     MainColumn: int option
+    MainFeatures: int list option
     Verbose: bool
     Debug: bool
   }
@@ -153,6 +160,21 @@ let private setPrecisionLimit (parsedArguments: ParseResults<Arguments>) bucketi
         |> Option.defaultValue bucketizationParams.PrecisionLimitRowFraction
   }
 
+let private getFeaturesArguments (csvColumns: Column list) (parsedArguments: ParseResults<Arguments>) =
+  let resolveColumn colName =
+    csvColumns |> List.findIndex (fun c -> c.Name = colName)
+
+  let mainColumn = parsedArguments.TryGetResult Clustering_MainColumn |> Option.map resolveColumn
+
+  let mainFeatures =
+    parsedArguments.TryGetResult Clustering_MainFeatures
+    |> Option.map (List.map resolveColumn)
+
+  if mainFeatures.IsSome && mainColumn.IsNone then
+    failwith "Main features works with a main column only."
+
+  mainColumn, mainFeatures
+
 let parseArguments argv =
   let parser = ArgumentParser.Create<Arguments>()
 
@@ -160,6 +182,11 @@ let parseArguments argv =
     parser.ParseCommandLine(inputs = argv, raiseOnUsage = true, ignoreMissing = false, ignoreUnrecognized = false)
 
   let csvPath = parsedArguments.GetResult CsvPath
+
+  let outputWriter =
+    match parsedArguments.TryGetResult Output with
+    | Some outputPath -> new IO.StreamWriter(outputPath, false) :> IO.TextWriter
+    | None -> Console.Out
 
   let verbose = (parsedArguments.TryGetResult Verbose).IsSome
   let debug = (parsedArguments.TryGetResult Debug).IsSome
@@ -184,17 +211,17 @@ let parseArguments argv =
     |> setClusteringParams parsedArguments
     |> setPrecisionLimit parsedArguments
 
-  let mainColumn =
-    parsedArguments.TryGetResult Clustering_MainColumn
-    |> Option.map (fun colName -> csvColumns |> List.findIndex (fun c -> c.Name = colName))
+  let mainColumn, mainFeatures = getFeaturesArguments csvColumns parsedArguments
 
   {
     CsvPath = csvPath
+    OutputWriter = outputWriter
     CsvColumns = csvColumns
     AidColumns = aidColumns
     AnonymizationParams = anonParams
     BucketizationParams = bucketizationParams
     MainColumn = mainColumn
+    MainFeatures = mainFeatures
     Verbose = verbose
     Debug = debug
   }

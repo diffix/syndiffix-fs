@@ -18,7 +18,19 @@ dotnet run file.csv --columns column0:r column1:i ...
 `--columns [<string>...]` - The selection of columns to synthesize and their types in the format `name:x`, where `x` is one of the following:
 `b`-boolean, `i`-integer, `r`-real, `t`-timestamp, `s`-string.
 
+### Python wrapper for ML
+
+The Python wrapper `syndiffix.py` uses [scikit-learn](https://scikit-learn.org/) to find the most relevant ML features for a target column.
+
+```
+python syndiffix.py <input-path> <output-path> --dev --ml_target=<ml-target-column>
+```
+
+Run `syndiffix.py --help` for usage guide.
+
 ### Optional arguments
+
+`--output <string>, -o <string>` - Path for CSV output. If not specified, result is printed to stdout.
 
 `--aidcolumns [<string>...]` - List of entity ID columns used for anonymization. If not specified,
 assumes each row represents a distinct protected entity.
@@ -45,15 +57,15 @@ assumes each row represents a distinct protected entity.
 
 `--no-clustering` - Disables column clustering.
 
-`--clustering-maincolumn` - Column to be prioritized in clusters (i.e. the target column in an ML model).
+`--clustering-maincolumn <string>` - Column to be prioritized in clusters for better ML accuracy.
+
+`--clustering-mainfeatures [<string>...]` - Best features of main column. When specified, this overrides the default clustering algorithm.
 
 `--clustering-samplesize <int>` - Table sample size when measuring dependence.
 
-`--clustering-maxsize <int>` - Maximum cluster size.
+`--clustering-maxweight <double>` - Maximum cluster weight. Default value of 15.0 is approximately 4-7 columns, depending on their variance.
 
 `--clustering-thresh-merge <double>` - Dependence threshold for combining columns in a cluster.
-
-`--clustering-thresh-patch <double>` - Dependence threshold for making a patch.
 
 #### Precision parameters
 
@@ -65,7 +77,10 @@ assumes each row represents a distinct protected entity.
 
 The fewer columns that are included with the `--columns` parameter, the more accurate the resulting synthetic data. If for instance one is only interested in column pairs, then it is better to generate a different synthetic dataset for each pair than to take the pairs from one complete synthetic dataset.
 
-If the synthetic dataset is for the purpose of building an ML model, and the target column of the model is known, then setting `--clustering-maincolumn` to the target column will produce synthetic data that leads to a better ML model. 
+If the synthetic dataset is for the purpose of building an ML model, and the target column of the model is known, then setting `--clustering-maincolumn` to the target column will produce synthetic data that leads to a better ML model.
+
+Running syndiffix through the [Python wrapper](#python-wrapper-for-ml) will automatically find the best ML features for the target column.
+This results in better ML quality compared to the univariate measures that syndiffix uses internally for feature detection.
 
 If there is more than one row per protected entity (i.e. per individual), then the `--aidcolumns` parameter must be set.
 
