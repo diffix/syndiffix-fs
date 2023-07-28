@@ -15,7 +15,7 @@ from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 # ----------------------------------------------------------------
 
 
-CATEGORY_THRESHOLD = 10
+CATEGORY_THRESHOLD = 15
 
 
 def is_categorical(column):
@@ -276,14 +276,8 @@ def run_syndiffix(input_path, output_path, columns, dev=False, extra_args=[], us
 
     syndiffix_process = subprocess.run(
         [*run_args, input_path, '--output', output_path, *extra_args, *user_args, '--columns', *columns_args],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
         cwd=cwd
     )
-
-    stderr = syndiffix_process.stderr.decode('utf-8')
-    if stderr:
-        print(stderr)
 
     return syndiffix_process.returncode
 
