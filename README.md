@@ -1,9 +1,10 @@
 # Reference implementation of SynDiffix
 
-## Goals
+## Purpose
 
-This is the reference implementation of SynDiffix that should serve as a guide for a fully-featured
-integration of the mechanism into other projects.
+This is the reference implementation of SynDiffix. It is two primary roles:
+* To test the properties and performance of SynDiffix.
+* To serve as the core description of the technology from which other implementations and integrations can be built.
 
 ## Usage
 
@@ -202,3 +203,7 @@ and its snapped ranges elsewhere.
           - Else:
             - Return the common prefix of the range, plus `*`, plus a random integer from inside the range.
     - Return a synthetic row from the generated values.
+
+## More information
+
+A description of SynDiffix, its privacy properties, and its performance measured over a variety of datasets can be found at [https://github.com/diffix/syndiffix/wiki/SynDiffix:-Overview](https://github.com/diffix/syndiffix/wiki/SynDiffix:-Overview).
