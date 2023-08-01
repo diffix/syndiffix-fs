@@ -320,9 +320,21 @@ def columns_metadata(df):
     return columns
 
 
+def process_aid_columns(arg):
+    if isinstance(arg, list):
+        return arg
+    elif isinstance(arg, tuple):
+        return list(arg)
+    elif isinstance(arg, str):
+        return [arg]
+    else:
+        return []
+
+
 def main(
         input_path: str,
         output_path: str,
+        aid_columns: list[str] = [],
         ml_target: str = None,
         ml_features_only: bool = False,
         syndiffix_args: str = '',
@@ -333,6 +345,7 @@ def main(
     Parameters:
         input_path: Path of input CSV file.
         output_path: Path of output CSV file.
+        aid_columns: Entity identifier columns. If not specified, assumes one row per entity.
         ml_target: If specified, focuses on this column for better ML prediction.
         ml_features_only: If set, limits columns to only ML features of ml_target.
         syndiffix_args: Extra arguments to pass to syndiffix.
@@ -347,6 +360,11 @@ def main(
 
     extra_args = []
 
+    aid_columns = process_aid_columns(aid_columns)
+    if len(aid_columns) > 0:
+        print(f'AID Columns: {aid_columns}')
+        extra_args += ['--aidcolumns', *aid_columns]
+
     if ml_target:
         print('ML Target: ' + ml_target)
 
@@ -354,7 +372,7 @@ def main(
         features = select_features_ml(df, ml_target)['kFeatures']
         print('ML Features: ' + (', '.join(features)))
 
-        extra_args = [
+        extra_args += [
             '--clustering-maincolumn', ml_target,
             '--clustering-mainfeatures', *features
         ]
