@@ -773,24 +773,26 @@ module Solver =
   let private clusteringQuality (context: ClusteringContext) (clusters: Clusters) =
     let dependencyMatrix = context.DependencyMatrix
 
-    let unsatisfiedDependencies = Array.copy context.TotalDependencePerColumn
-
-    let visitPairs (columns: ColumnId array) =
-      for i = 1 to columns.Length - 1 do
-        let colA = columns.[i]
-
-        for j = 0 to i - 1 do
-          let colB = columns.[j]
-          let dependence = dependencyMatrix.[colA, colB] // Assumes a symmetric matrix.
-          unsatisfiedDependencies.[colA] <- unsatisfiedDependencies.[colA] - dependence
-          unsatisfiedDependencies.[colB] <- unsatisfiedDependencies.[colB] - dependence
-
-    visitPairs clusters.InitialCluster
+    let mutable depScore = 0.0
 
     for _, stitchColumns, derivedColumns in clusters.DerivedClusters do
-      visitPairs (Array.append stitchColumns derivedColumns)
+      for initialColumn in clusters.InitialCluster do
+        if not (Array.contains initialColumn stitchColumns) then
+          for derivedColumn in derivedColumns do
+            let dependence = dependencyMatrix.[initialColumn, derivedColumn]
+            depScore <- depScore - dependence
 
-    Array.sum unsatisfiedDependencies / (2.0 * float unsatisfiedDependencies.Length)
+    for i = 0 to clusters.DerivedClusters.Length - 2 do
+      for j = i to clusters.DerivedClusters.Length - 1 do
+        let _, _, colsA = clusters.DerivedClusters.[i]
+        let _, _, colsB = clusters.DerivedClusters.[j]
+
+        for colA in colsA do
+          for colB in colsB do
+            let dependence = dependencyMatrix.[colA, colB]
+            depScore <- depScore - 2.0 * dependence
+
+    depScore
 
   let clusteringContext (mainColumn: ColumnId option) (forest: Forest) =
     let measures = Dependence.measureAll forest
