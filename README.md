@@ -204,6 +204,144 @@ and its snapped ranges elsewhere.
             - Return the common prefix of the range, plus `*`, plus a random integer from inside the range.
     - Return a synthetic row from the generated values.
 
+### Clustering
+
+When input data has a large number of dimensions, columns are divided into clusters.
+The solver searches for permutations that build clusters with best overall dependence between columns.
+
+#### Solver
+
+- Current permutation <- {1..dimensions}.
+- Best solution <- quality of initial permutation.
+- Temperature <- initial temperature.
+- While temperature > minimum temperature:
+  - New permutation <- swap a random pair in current permutation.
+  - If quality of new permutation is better than quality of current permutation,
+  - Or accept with some probability depending on temperature:
+    - Current permutation <- new permutation.
+  - If quality of new permutation better than quality of best permutation:
+    - Best solution <- current permutation.
+  - Lower temperature based on a curve function.
+- Return clusters built from best solution.
+
+#### Building clusters from a permutation
+
+Each cluster has a maximum (configurable) weight.
+A column's weight is computed as `1 + sqrt(max(1, entropy))`.
+
+- Read columns in the permutation from left to right.
+- Keep adding columns to the initial cluster until:
+  - The initial cluster is full,
+  - Or the next column has average dependence score (to the cluster's columns) below merge threshold.
+- Rest of columns are added to derived clusters. Initially derived clusters are an empty list.
+- For each remaining column (left to right):
+  - Find all derived clusters where:
+    - Average dependence score is above merge threshold.
+    - Cluster's current weight + this column's weight do not exceed 70% of max cluster weight.
+  - Pick cluster with best average score.
+  - If such cluster exists:
+    - Add column to cluster.
+  - Else:
+    - Start a new cluster with this column.
+- For all derived clusters (earliest to latest):
+  - Look back at the columns that are available so far (including initial cluster).
+  - Sort available columns by average dependence score to the derived columns (best to worst).
+  - Always use first column from this list as a stitch column.
+  - For each remaining column:
+    - If cluster has available space and column's average dependence score is above threshold:
+      - Add stitch column to cluster.
+- Return initial cluster and derived clusters.
+
+If we have a main column, it will always appear in the initial cluster, and always as the first stitch column in derived clusters.
+
+#### Measuring clustering quality
+
+Clustering quality is the average unsatisfied dependence between pairs of columns.
+A lower value is better because more dependencies are preserved.
+
+- Create a copy of the dependence matrix.
+- For each cluster in clusters:
+  - For each possible pair col1, col2 in cluster:
+    - Set matrix's cells (col1,col2) to zero and (col2,col1) to zero.
+- Take the sum of the matrix, excluding values in the diagonal.
+- Return `sum / (2 * num_columns)`.
+
+#### Measuring dependence between columns
+
+Dependence between columns is a univariate measure that returns a score from 0.0 to 1.0.
+SynDiffix uses a modified version of chi2 dependence measure.
+The dependence matrix is the num_columns x num_columns matrix with all pairs of scores.
+
+### Stitching
+
+Stitching is the process of combining microdata from two or more clusters into a single table.
+
+- Initial microtable <- synthesize initial cluster.
+- For each cluster in derived clusters:
+  - Produce synthetic data for cluster.
+  - microtable <- stitch current microtable with cluster's microdata.
+- Return the complete microtable.
+
+By "left rows" we refer to the current microtable, and "right rows" refers to the upcoming cluster's microtable.
+
+#### Patching
+
+If the cluster has no stitch columns, we perform a *patch*:
+
+- Randomly shuffle right rows.
+- Align the number of right rows to be that of left rows.
+  - If both sides have equal count of rows, do nothing.
+  - If right has fewer rows, repeat `left.count - right.count` random rows from the right side.
+  - If right has more, drop `right.count - left.count` last rows from the right side.
+- Zip left and right rows:
+  - For each pair, produce a microdata row that combines columns of both sides.
+- Return list of combined rows.
+
+For clusters with stitch columns, we perform a recursive *stitch*.
+
+#### Recursive stitching
+
+- Preparation step
+  - Sort stitch (common) rows from lowest entropy to highest.
+  - For each stitch column, start from the complete 1-dim range of that column.
+  - Start the sorting process from the first stitch column in the sorted list.
+- Sort both left and right sides by the current sort column.
+- Find the midpoint of sort column's 1-dim range.
+- Split both left and right rows based on the midpoint.
+  - We call rows that have a value of greater than or equal to the midpoint the "upper half".
+  - Rows that have value less than the midpoint are called the "lower half"
+- If the lower halves of opposing microtables have a roughly equal number of rows, and same for upper halves:
+  - Accept the split.
+  - Move to the next sort column in the list. Wrap around if necessary.
+  - Recursively stitch lower left with lower right. The nested stitch sees only the lower half of the 1-dim range.
+  - Recursively stitch upper left with upper right. Use nested stitch sees only the upper half of the 1-dim range.
+- Else:
+  - Reject the split.
+  - Move to the next sort column in the list. Wrap around if necessary.
+  - If all sort columns were rejected consecutively:
+    - Merge left and right.
+    - Emit merged rows.
+  - Else:
+    - Recursively stitch left and right rows.
+
+#### Microtable merging
+
+- Randomly shuffle left and right rows.
+- Compute the average length of rows between left and right side.
+- Align left and right rows to that length.
+  - If a side has fewer rows, extend by randomly repeating `avg_rows - current` rows.
+  - If a side has more rows, drop the last `current - avg_rows` rows.
+- Perform a multi level sort on left and right rows. Use the same sort hierarchy as in the stitching phase.
+- For `i` <- `1` to `avg_rows`:
+  - Merge left and right rows by taking distinct columns from both sides.
+  - For the shared stitch columns:
+    - If either side is a "stitch owner", always use that side's stitch columns.
+    - Else:
+      - if `i` is odd, use the stitch columns from the left side.
+      - If `i` is even, use the stitch columns from the right side.
+  - Add the merged row to the resulting microtable.
+- Return the microtable.
+
 ## More information
 
 A description of SynDiffix, its privacy properties, and its performance measured over a variety of datasets can be found at [https://github.com/diffix/syndiffix/wiki/SynDiffix:-Overview](https://github.com/diffix/syndiffix/wiki/SynDiffix:-Overview).
