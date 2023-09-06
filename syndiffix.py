@@ -111,7 +111,7 @@ def preprocess(df, one_hot_encode=True, variance_threshold=True):
     )
 
     if not variance_threshold:
-        return df_preprocessed
+        return df_preprocessed, inverse_lookup
 
     threshold = VarianceThreshold(0.00001)
     threshold.set_output(transform='pandas')
@@ -122,7 +122,6 @@ def preprocess(df, one_hot_encode=True, variance_threshold=True):
 
 
 def convert_datetime_to_numeric(df):
-    from pandas.errors import ParserError
     REFERENCE_DATE = pd.to_datetime('1800-01-01')
 
     for col_name, col_type in zip(df.columns, df.dtypes):
