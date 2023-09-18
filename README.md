@@ -314,7 +314,7 @@ For clusters with stitch columns, we perform a recursive *stitch*.
   - Accept the split.
   - Move to the next sort column in the list. Wrap around if necessary.
   - Recursively stitch lower left with lower right. The nested stitch sees only the lower half of the 1-dim range.
-  - Recursively stitch upper left with upper right. Use nested stitch sees only the upper half of the 1-dim range.
+  - Recursively stitch upper left with upper right. The nested stitch sees only the upper half of the 1-dim range.
 - Else:
   - Reject the split.
   - Move to the next sort column in the list. Wrap around if necessary.
@@ -341,6 +341,29 @@ For clusters with stitch columns, we perform a recursive *stitch*.
       - If `i` is even, use the stitch columns from the right side.
   - Add the merged row to the resulting microtable.
 - Return the microtable.
+
+#### Clustering for ML targets
+
+When building microdata for an ML target column, we run a simpler version of the cluster builder.
+
+- Use sci-kit learn to find the best `k` ML features (columns with high ML relevance) for the target column.
+- Create initial cluster which at first contains only the target column.
+- Set initial cluster as the current cluster.
+- For each feature in k-features (ordered by importance, highest to lowest):
+  - If current cluster has available space:
+    - Add feature to current cluster.
+  - Else:
+    - Start a new cluster and set it as the current cluster.
+    - Add the target column as a stitch column to this cluster.
+    - Add feature to current cluster.
+- The first cluster is the initial cluster, the rest are derived clusters which are stitched by the target column.
+- If patching is enabled:
+  - For each non-feature column:
+    - Add derived cluster with no stitch column and the single derived column `[column]`.
+- Return clusters.
+
+In other words, we chunk the k-features by a max size. The target column is present in each one.
+We optionally patch the non-feature columns to get a complete table.
 
 ## More information
 
