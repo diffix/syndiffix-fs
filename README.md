@@ -3,8 +3,9 @@
 ## Purpose
 
 This is the reference implementation of SynDiffix. It is two primary roles:
-* To test the properties and performance of SynDiffix.
-* To serve as the core description of the technology from which other implementations and integrations can be built.
+
+- To test the properties and performance of SynDiffix.
+- To serve as the core description of the technology from which other implementations and integrations can be built.
 
 ## Usage
 
@@ -286,7 +287,7 @@ By "left rows" we refer to the current microtable, and "right rows" refers to th
 
 #### Patching
 
-If the cluster has no stitch columns, we perform a *patch*:
+If the cluster has no stitch columns, we perform a _patch_:
 
 - Randomly shuffle right rows.
 - Align the number of right rows to be that of left rows.
@@ -297,7 +298,7 @@ If the cluster has no stitch columns, we perform a *patch*:
   - For each pair, produce a microdata row that combines columns of both sides.
 - Return list of combined rows.
 
-For clusters with stitch columns, we perform a recursive *stitch*.
+For clusters with stitch columns, we perform a recursive _stitch_.
 
 #### Recursive stitching
 
@@ -364,6 +365,19 @@ When building microdata for an ML target column, we run a simpler version of the
 
 In other words, we chunk the k-features by a max size. The target column is present in each one.
 We optionally patch the non-feature columns to get a complete table.
+
+### Noise
+
+Noise is added to entity and row counts using an RNG seeded deterministically from the bucket's contents.
+This ensures identical output for the same data in different runs.
+
+Entity threshold checks use a single noise layer that is seeded with the hash value of the AIDs included in the
+respective bucket.
+
+Row counts have two noise layers: one seeded with the hash value of the AIDs present in the bucket and one seeded
+with the hash of the bucket's labels and columns (the column names in each tree make up the base seed of the tree and,
+for each bucket, the labels are made up from the middle-points of the bucket's ranges).
+Then, the regular [Diffix count anonymizer](https://arxiv.org/abs/2201.04351) runs.
 
 ## More information
 
