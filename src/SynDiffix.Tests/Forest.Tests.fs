@@ -284,3 +284,98 @@ let ``Handling of NULL AIDs`` () =
   |> Tree.nodeData
   |> Tree.dataCrossesLowThreshold 2
   |> should equal false
+
+// ----------------------------------------------------------------
+// Snapshot tests
+// ----------------------------------------------------------------
+
+let snapshotAnonContext =
+  {
+    BucketSeed = 0UL
+    AnonymizationParams =
+      { AnonymizationParams.Default with
+          LayerNoiseSD = 0.
+          Suppression = { LowThreshold = 3; LayerSD = 0.; LowMeanGap = 2. }
+      }
+  }
+
+let private rangesStr (tree: Tree) =
+  let ranges = (Tree.nodeData tree).SnappedRanges
+
+  ranges
+  |> Array.map (fun r -> $"[{System.Math.Round(r.Min, 5)},{System.Math.Round(r.Max, 5)}]")
+  |> String.joinWithComma
+
+let rec private hashTree (node: Tree) =
+  let builder = System.Text.StringBuilder()
+
+  let append (str: string) = builder.Append(str) |> ignore
+
+  match node with
+  | Tree.Leaf _ -> append "Leaf;"
+  | Tree.Branch _ -> append "Branch;"
+
+  append $"Count:{Tree.noisyRowCount node};"
+  append $"Ranges:{rangesStr node};"
+
+  match node with
+  | Tree.Branch branch ->
+    append "Children:"
+
+    branch.Children
+    |> Seq.sortBy (fun pair -> pair.Key)
+    |> Seq.iter (fun pair -> append $"Id:{pair.Key};Hash:{hashTree pair.Value};")
+  | _ -> ()
+
+  let bytes = System.Text.Encoding.UTF8.GetBytes(builder.ToString())
+  let hash = System.Security.Cryptography.SHA1.HashData(bytes)
+  System.BitConverter.ToString(hash).Replace("-", "").ToLower()
+
+
+[<Fact>]
+let ``Taxi snapshot tests`` () =
+  let path = getTestFilePath "taxi-1000.csv"
+
+  let rows, columns =
+    Csv.read
+      path
+      [
+        { Name = "pickup_longitude"; Type = RealType }
+        { Name = "pickup_latitude"; Type = RealType }
+        { Name = "fare_amount"; Type = RealType }
+        { Name = "rate_code"; Type = IntegerType }
+        { Name = "passenger_count"; Type = IntegerType }
+      ]
+      Csv.rowNumberAid
+    |> mapFst Seq.toArray
+
+  let columnTypes = columns |> List.map (fun column -> column.Type)
+  let dataConvertors = createDataConvertors columnTypes rows
+
+  let forest =
+    Forest(
+      rows,
+      dataConvertors,
+      snapshotAnonContext,
+      BucketizationParams.Default,
+      columns |> List.map (fun c -> c.Name),
+      uniqueAidCountStrategy
+    )
+
+  let hash comb =
+    forest.GetTree(List.toArray comb) |> hashTree
+
+  // Single dimensions
+  hash [ 0 ] |> should equal "c54e1fcd3aeda4e2efaa8ac178f5dfe7d12d8cc2"
+  hash [ 1 ] |> should equal "8ab7f27328f922965b89fc0f894eab0ca474c986"
+  hash [ 2 ] |> should equal "0460917ff0942a43f9e28cbdc132dd3861995c82"
+  hash [ 3 ] |> should equal "cfa83a32d3eea908b4bb33d858e7a8786952b739"
+  hash [ 4 ] |> should equal "f41bc89f0e683e4ac65421b5681aa48fb1ed4456"
+
+  // Higher dimensions
+  hash [ 0; 1 ] |> should equal "daa2f4af52460728af6276fc5664d186f6a4df9b"
+  hash [ 0; 1; 2 ] |> should equal "55b1cf65c256545b3c1da970cc9c2083a87c2e97"
+  hash [ 0; 1; 2; 3 ] |> should equal "12a5ac07bf3d98501378360deb8505d90a791c32"
+
+  hash [ 0; 1; 2; 3; 4 ]
+  |> should equal "bd75e1cdfd8957dd45a1f61ff6cc5a1e7254ee99"
